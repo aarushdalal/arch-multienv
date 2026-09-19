@@ -1,0 +1,7 @@
+# Multi-Environment SDDM Autologin Drop-in
+# Managed dynamically by: multienv switch <environment>
+# Destination: /etc/sddm.conf.d/autologin.conf
+
+[Autologin]
+User=your_username
+Session=multienv-environment-a.desktop

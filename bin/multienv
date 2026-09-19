@@ -1,0 +1,527 @@
+#!/usr/bin/env python3
+"""
+arch-multienv: Master CLI for managing, switching, and validating
+multi-environment desktop profiles on Arch Linux.
+"""
+
+import argparse
+import getpass
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+# Python 3.11+ standard library tomllib
+try:
+    import tomllib
+except ImportError:
+    try:
+        import tomli as tomllib
+    except ImportError:
+        tomllib = None
+
+
+def expand_path(p: str) -> Path:
+    """Expand user and environment variables in path."""
+    expanded = os.path.expanduser(os.path.expandvars(p))
+    return Path(expanded)
+
+
+def find_config_path() -> Path | None:
+    """Find the multienv configuration file in standard search locations."""
+    if "MULTIENV_CONFIG" in os.environ:
+        p = Path(os.environ["MULTIENV_CONFIG"])
+        if p.is_file():
+            return p
+
+    xdg_config = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+    candidates = [
+        Path(xdg_config) / "multienv" / "multienv.toml",
+        Path.home() / ".config" / "multienv" / "multienv.toml",
+        Path("/etc/multienv/multienv.toml"),
+        # Repository-local fallback if running from source tree
+        Path(__file__).resolve().parent.parent / "config" / "multienv.toml.example",
+    ]
+
+    for cand in candidates:
+        if cand.is_file():
+            return cand
+    return None
+
+
+def load_config(config_file: Path | None = None) -> tuple[dict, Path]:
+    """Load and parse the TOML configuration."""
+    cfg_path = config_file or find_config_path()
+    if not cfg_path or not cfg_path.is_file():
+        print("Error: Configuration file not found.", file=sys.stderr)
+        print("Expected at ~/.config/multienv/multienv.toml or via $MULTIENV_CONFIG", file=sys.stderr)
+        sys.exit(1)
+
+    if tomllib is None:
+        print("Error: Python tomllib is required (Python 3.11+).", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        with open(cfg_path, "rb") as f:
+            cfg = tomllib.load(f)
+            return cfg, cfg_path
+    except Exception as e:
+        print(f"Error parsing configuration '{cfg_path}': {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def get_general_setting(cfg: dict, key: str, default: str) -> str:
+    """Retrieve a general setting from configuration."""
+    return cfg.get("general", {}).get(key, default)
+
+
+def get_environments(cfg: dict) -> dict:
+    """Retrieve all defined environments."""
+    return cfg.get("environments", {})
+
+
+def cmd_status(args, cfg: dict, cfg_path: Path):
+    """Show current active environment and autologin status."""
+    print("=== Arch Multi-Environment Status ===")
+    print(f"Configuration: {cfg_path}")
+
+    # 1. Desktop environment variable
+    xdg_desktop = os.environ.get("XDG_CURRENT_DESKTOP", "Unknown / Not Set")
+    print(f"Current Desktop ($XDG_CURRENT_DESKTOP): {xdg_desktop}")
+
+    # 2. Inspect active compositor commandline
+    running_config = "None detected"
+    active_env_id = None
+    try:
+        ps_out = subprocess.check_output(
+            ["pgrep", "-a", "Hyprland"],
+            stderr=subprocess.DEVNULL,
+            text=True
+        )
+        for line in ps_out.strip().splitlines():
+            if "--config" in line:
+                parts = line.split()
+                if "--config" in parts:
+                    idx = parts.index("--config")
+                    if idx + 1 < len(parts):
+                        running_config = parts[idx + 1]
+    except Exception:
+        running_config = "Hyprland not running or cannot inspect process"
+
+    print(f"Running Compositor Config: {running_config}")
+
+    # Match running config to defined environments
+    envs = get_environments(cfg)
+    for env_id, env_data in envs.items():
+        cfg_expanded = str(expand_path(env_data.get("config_path", "")))
+        if running_config and (running_config == cfg_expanded or running_config.endswith(env_data.get("config_path", ""))):
+            active_env_id = env_id
+            break
+
+    if active_env_id:
+        print(f"Active Environment: {envs[active_env_id].get('name', active_env_id)} [{active_env_id}]")
+    else:
+        print("Active Environment: Unknown / Custom")
+
+    # 3. Next session in SDDM autologin
+    autologin_path = expand_path(get_general_setting(cfg, "sddm_autologin_path", "/etc/sddm.conf.d/autologin.conf"))
+    next_session = "None (Manual Greeter Login)"
+    if autologin_path.is_file():
+        try:
+            with open(autologin_path, "r") as f:
+                for line in f:
+                    if line.strip().startswith("Session="):
+                        next_session = line.strip().split("=", 1)[1]
+                        break
+        except Exception as e:
+            next_session = f"Error reading ({e})"
+
+    print(f"Next Boot Session (SDDM Autologin): {next_session}")
+
+
+def cmd_list(args, cfg: dict, cfg_path: Path):
+    """List all available environments and their properties."""
+    envs = get_environments(cfg)
+    default_env = get_general_setting(cfg, "default_environment", "")
+
+    print(f"=== Configured Environments ({len(envs)}) ===")
+    for env_id, data in envs.items():
+        is_default = " (DEFAULT)" if env_id == default_env else ""
+        name = data.get("name", env_id)
+        desc = data.get("description", "No description")
+        conf = data.get("config_path", "None")
+        scale = data.get("display_scale", "1.0")
+        session_desktop = data.get("session_desktop", f"multienv-{env_id}.desktop")
+
+        print(f"\n* [{env_id}]{is_default} - {name}")
+        print(f"    Description:    {desc}")
+        print(f"    Config Path:    {conf}")
+        print(f"    Display Scale:  {scale}")
+        print(f"    Session Entry:  {session_desktop}")
+
+
+def validate_environment(env_id: str, env_data: dict, cfg: dict) -> list[str]:
+    """Validate that an environment's configuration and components exist and are valid."""
+    issues = []
+
+    # 1. Config path check
+    cfg_raw = env_data.get("config_path")
+    if not cfg_raw:
+        issues.append("Missing 'config_path' specification.")
+    else:
+        cfg_p = expand_path(cfg_raw)
+        if not cfg_p.is_file():
+            issues.append(f"Configuration file does not exist: {cfg_p}")
+        else:
+            # Check Hyprland syntax if compositor is Hyprland and binary exists
+            if env_data.get("compositor", "hyprland").lower() == "hyprland":
+                if shutil.which("Hyprland"):
+                    try:
+                        res = subprocess.run(
+                            ["Hyprland", "--verify-config", "--config", str(cfg_p)],
+                            capture_output=True,
+                            text=True,
+                            timeout=5
+                        )
+                        if res.returncode != 0:
+                            # Note: Hyprland --verify-config may output warnings or errors
+                            first_err = res.stderr.strip().splitlines()
+                            err_msg = first_err[0] if first_err else "Non-zero exit from --verify-config"
+                            issues.append(f"Hyprland config validation warning: {err_msg}")
+                    except Exception as e:
+                        issues.append(f"Could not verify Hyprland config: {e}")
+
+    # 2. Autostart script check (if defined)
+    autostart_raw = env_data.get("autostart")
+    if autostart_raw:
+        auto_p = expand_path(autostart_raw)
+        if not auto_p.is_file():
+            issues.append(f"Autostart script does not exist: {auto_p}")
+        elif not os.access(auto_p, os.X_OK):
+            issues.append(f"Autostart script is not executable: {auto_p}")
+
+    # 3. Wayland session desktop file check
+    sessions_dir = expand_path(get_general_setting(cfg, "wayland_sessions_dir", "/usr/share/wayland-sessions"))
+    session_file = env_data.get("session_desktop", f"multienv-{env_id}.desktop")
+    session_path = sessions_dir / session_file
+    if not session_path.is_file() and not session_path.is_symlink():
+        issues.append(f"Wayland session file not installed: {session_path} (Run 'multienv generate-sessions')")
+
+    return issues
+
+
+def cmd_validate(args, cfg: dict, cfg_path: Path):
+    """Validate one or all environment configurations."""
+    envs = get_environments(cfg)
+    target = args.environment
+
+    targets = [target] if target else list(envs.keys())
+    has_errors = False
+
+    print("=== Validating Environment Configurations ===")
+    for env_id in targets:
+        if env_id not in envs:
+            print(f"[FAIL] Unknown environment '{env_id}'", file=sys.stderr)
+            has_errors = True
+            continue
+
+        env_data = envs[env_id]
+        issues = validate_environment(env_id, env_data, cfg)
+        if issues:
+            print(f"\n[FAIL] Environment '{env_id}':")
+            for issue in issues:
+                print(f"  - {issue}")
+            has_errors = True
+        else:
+            print(f"[OK]   Environment '{env_id}' passed all pre-flight checks.")
+
+    if has_errors:
+        sys.exit(1)
+
+
+def cmd_switch(args, cfg: dict, cfg_path: Path):
+    """Switch the next session target in SDDM autologin."""
+    envs = get_environments(cfg)
+    target = args.environment
+
+    if target not in envs:
+        print(f"Error: Unknown environment '{target}'. Available: {', '.join(envs.keys())}", file=sys.stderr)
+        sys.exit(1)
+
+    env_data = envs[target]
+    env_name = env_data.get("name", target)
+
+    # 1. Pre-flight validation
+    if not args.force:
+        issues = validate_environment(target, env_data, cfg)
+        critical_issues = [i for i in issues if "warning" not in i.lower()]
+        if critical_issues:
+            print(f"Error: Target environment '{target}' failed pre-flight checks:", file=sys.stderr)
+            for issue in critical_issues:
+                print(f"  - {issue}", file=sys.stderr)
+            print("Aborting switch to prevent broken login. Use --force to override.", file=sys.stderr)
+            sys.exit(1)
+
+    # 2. Determine target session file
+    session_desktop = env_data.get("session_desktop", f"multienv-{target}.desktop")
+
+    # 3. Determine autologin user
+    autologin_user = get_general_setting(cfg, "autologin_user", "")
+    if not autologin_user:
+        autologin_user = os.environ.get("USER") or getpass.getuser()
+
+    # 4. Write to SDDM autologin configuration
+    autologin_path = expand_path(get_general_setting(cfg, "sddm_autologin_path", "/etc/sddm.conf.d/autologin.conf"))
+    content = f"[Autologin]\nUser={autologin_user}\nSession={session_desktop}\n"
+
+    print(f"Setting next session to: {env_name} ({session_desktop})")
+
+    if args.dry_run:
+        print("[DRY-RUN] Would write to:", autologin_path)
+        print("[DRY-RUN] Content:\n" + content)
+        return
+
+    # Ensure parent directory exists or can be written
+    parent = autologin_path.parent
+    if not parent.exists():
+        try:
+            subprocess.run(["sudo", "mkdir", "-p", str(parent)], check=True)
+        except Exception as e:
+            print(f"Error creating directory '{parent}': {e}", file=sys.stderr)
+            sys.exit(1)
+
+    # Write file (try direct write, fallback to sudo)
+    written = False
+    try:
+        if os.access(parent, os.W_OK) and (not autologin_path.exists() or os.access(autologin_path, os.W_OK)):
+            with open(autologin_path, "w") as f:
+                f.write(content)
+            written = True
+    except Exception:
+        pass
+
+    if not written:
+        try:
+            proc = subprocess.Popen(["sudo", "tee", str(autologin_path)], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
+            proc.communicate(input=content.encode("utf-8"))
+            if proc.returncode == 0:
+                written = True
+        except Exception as e:
+            print(f"Error writing to '{autologin_path}' with sudo: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    if not written:
+        print(f"Failed to write autologin configuration to '{autologin_path}'.", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Successfully configured next session for '{autologin_user}' as '{env_name}'.")
+
+    # 5. Handle immediate logout if requested
+    confirm_val = get_general_setting(cfg, "confirm_logout", True)
+    if isinstance(confirm_val, bool):
+        confirm = confirm_val
+    else:
+        confirm = str(confirm_val).lower() in ("true", "1", "yes")
+    do_logout = args.now
+
+    if not do_logout and confirm and not args.no_prompt:
+        try:
+            resp = input(f"Log out now to switch to {env_name}? [Y/n] ").strip().lower()
+            if resp in ("", "y", "yes"):
+                do_logout = True
+        except (KeyboardInterrupt, EOFError):
+            print("\nSwitch saved. Will take effect on next logout.")
+            return
+
+    if do_logout:
+        print("Initiating graceful logout...")
+        logout_bin = shutil.which("multienv-logout") or str(Path(__file__).resolve().parent / "multienv-logout")
+        if os.path.isfile(logout_bin) and os.access(logout_bin, os.X_OK):
+            subprocess.run([logout_bin])
+        else:
+            # Fallback to uwsm stop or hyprctl dispatch exit
+            if shutil.which("uwsm"):
+                subprocess.run(["uwsm", "stop"])
+            elif shutil.which("hyprctl"):
+                subprocess.run(["hyprctl", "dispatch", "exit"])
+    else:
+        print(f"Session updated. Next time you log out or reboot, you will enter {env_name}.")
+
+
+def cmd_fallback(args, cfg: dict, cfg_path: Path):
+    """Emergency reset: removes autologin configuration to restore manual greeter."""
+    autologin_path = expand_path(get_general_setting(cfg, "sddm_autologin_path", "/etc/sddm.conf.d/autologin.conf"))
+    print(f"Emergency Fallback: Restoring SDDM manual login screen...")
+
+    if not autologin_path.exists():
+        print(f"No autologin file at '{autologin_path}'. SDDM is already in manual greeter mode.")
+        return
+
+    try:
+        if os.access(autologin_path, os.W_OK):
+            autologin_path.unlink()
+            print("Successfully removed autologin configuration.")
+        else:
+            subprocess.run(["sudo", "rm", "-f", str(autologin_path)], check=True)
+            print("Successfully removed autologin configuration using sudo.")
+    except Exception as e:
+        print(f"Error removing autologin configuration: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_doctor(args, cfg: dict, cfg_path: Path):
+    """Run diagnostic checks on dependencies, services, and paths."""
+    print("=== Multi-Environment Diagnostic Doctor ===")
+    all_ok = True
+
+    # Check required/recommended binaries
+    binaries = {
+        "Hyprland": "Primary Wayland Compositor",
+        "uwsm": "Universal Wayland Session Manager (Recommended for systemd envelope)",
+        "sddm": "Display Manager",
+        "python3": "Core CLI Runtime",
+    }
+
+    print("\n1. Core System Binaries:")
+    for b, desc in binaries.items():
+        loc = shutil.which(b)
+        status = f"[FOUND] ({loc})" if loc else "[MISSING]"
+        print(f"   {b:<12} {status:<24} - {desc}")
+        if not loc and b in ("Hyprland", "python3"):
+            all_ok = False
+
+    # Check directories and permissions
+    print("\n2. System & User Directories:")
+    sessions_dir = expand_path(get_general_setting(cfg, "wayland_sessions_dir", "/usr/share/wayland-sessions"))
+    autologin_p = expand_path(get_general_setting(cfg, "sddm_autologin_path", "/etc/sddm.conf.d/autologin.conf"))
+
+    dirs = [
+        ("Wayland Sessions", sessions_dir),
+        ("SDDM Config Dir", autologin_p.parent),
+    ]
+    for name, d in dirs:
+        status = "[EXISTS]" if d.is_dir() else "[MISSING]"
+        print(f"   {name:<20} {status:<12} {d}")
+
+    # Check environments
+    print("\n3. Environment Verification:")
+    envs = get_environments(cfg)
+    for env_id, data in envs.items():
+        issues = validate_environment(env_id, data, cfg)
+        if issues:
+            print(f"   [{env_id}] -> ISSUES FOUND:")
+            for issue in issues:
+                print(f"       * {issue}")
+            all_ok = False
+        else:
+            print(f"   [{env_id}] -> HEALTHY")
+
+    print("\nSummary:")
+    if all_ok:
+        print("All core diagnostics passed. System is operational.")
+    else:
+        print("One or more warnings or missing components detected. Review items above.")
+
+
+def cmd_generate_sessions(args, cfg: dict, cfg_path: Path):
+    """Generate .desktop files for all configured environments."""
+    envs = get_environments(cfg)
+    out_dir = expand_path(args.output_dir) if args.output_dir else expand_path(get_general_setting(cfg, "wayland_sessions_dir", "/usr/share/wayland-sessions"))
+
+    print(f"Generating Wayland session entries into: {out_dir}")
+    multienv_session_bin = shutil.which("multienv-session") or "/usr/local/bin/multienv-session"
+
+    for env_id, data in envs.items():
+        name = data.get("name", env_id)
+        desc = data.get("description", f"Multi-Environment {name}")
+        desktop_names = data.get("desktop_names", f"Hyprland:{env_id}")
+        session_file = data.get("session_desktop", f"multienv-{env_id}.desktop")
+        target_path = out_dir / session_file
+
+        entry_content = f"""[Desktop Entry]
+Name={name}
+Comment={desc}
+Exec={multienv_session_bin} {env_id}
+Type=Application
+DesktopNames={desktop_names}
+"""
+        if args.dry_run:
+            print(f"\n[DRY-RUN] File: {target_path}\n{entry_content}")
+            continue
+
+        try:
+            if os.access(out_dir, os.W_OK):
+                with open(target_path, "w") as f:
+                    f.write(entry_content)
+                print(f"[CREATED] {target_path}")
+            else:
+                proc = subprocess.Popen(["sudo", "tee", str(target_path)], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
+                proc.communicate(input=entry_content.encode("utf-8"))
+                if proc.returncode == 0:
+                    print(f"[CREATED] {target_path} (via sudo)")
+                else:
+                    print(f"[FAILED] Could not write {target_path}", file=sys.stderr)
+        except Exception as e:
+            print(f"[ERROR] {target_path}: {e}", file=sys.stderr)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="multienv",
+        description="Master CLI for managing Arch Linux multi-environment desktop profiles."
+    )
+    parser.add_argument("--config", "-c", type=str, help="Path to multienv.toml configuration file")
+
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # status
+    p_status = subparsers.add_parser("status", help="Show current active environment and autologin status")
+
+    # list
+    p_list = subparsers.add_parser("list", help="List all configured environments")
+
+    # validate
+    p_val = subparsers.add_parser("validate", help="Validate environment configurations and dependencies")
+    p_val.add_argument("environment", nargs="?", help="Specific environment ID to validate (or all if omitted)")
+
+    # switch
+    p_switch = subparsers.add_parser("switch", help="Switch the next session target in SDDM")
+    p_switch.add_argument("environment", help="Environment ID to switch to")
+    p_switch.add_argument("--now", "-n", action="store_true", help="Log out immediately after setting profile")
+    p_switch.add_argument("--no-prompt", action="store_true", help="Do not prompt for confirmation")
+    p_switch.add_argument("--force", "-f", action="store_true", help="Bypass pre-flight validation warnings")
+    p_switch.add_argument("--dry-run", action="store_true", help="Print planned actions without writing")
+
+    # fallback
+    p_fallback = subparsers.add_parser("fallback", help="Emergency reset: remove autologin to restore SDDM greeter")
+
+    # doctor
+    p_doc = subparsers.add_parser("doctor", help="Run comprehensive diagnostics on system dependencies")
+
+    # generate-sessions
+    p_gensess = subparsers.add_parser("generate-sessions", help="Generate Wayland session .desktop files")
+    p_gensess.add_argument("--output-dir", "-o", type=str, help="Directory to write .desktop files to")
+    p_gensess.add_argument("--dry-run", action="store_true", help="Print generated files without writing")
+
+    args = parser.parse_args()
+
+    cfg_file = Path(args.config) if args.config else None
+    cfg, cfg_path = load_config(cfg_file)
+
+    cmd_map = {
+        "status": cmd_status,
+        "list": cmd_list,
+        "validate": cmd_validate,
+        "switch": cmd_switch,
+        "fallback": cmd_fallback,
+        "doctor": cmd_doctor,
+        "generate-sessions": cmd_generate_sessions,
+    }
+
+    if args.command in cmd_map:
+        cmd_map[args.command](args, cfg, cfg_path)
+
+
+if __name__ == "__main__":
+    main()

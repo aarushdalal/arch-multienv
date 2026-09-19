@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# arch-multienv: Session Entrypoint Wrapper
+# ==============================================================================
+# Manages compositor invocation under a protected lifecycle envelope.
+# Traps signals to ensure display manager helpers (sddm-helper, etc.) always
+# receive a clean return code (exit 0), avoiding crash-loops.
+# ==============================================================================
+
+set -uo pipefail
+
+# Trap signals to protect the display manager from non-zero crash exits
+trap 'exit 0' TERM HUP INT EXIT
+
+ENV_ID="${1:-}"
+
+if [[ -z "$ENV_ID" ]]; then
+    echo "Error: No environment ID specified." >&2
+    echo "Usage: multienv-session <environment-id>" >&2
+    exit 1
+fi
+
+# Locate multienv CLI
+CLI_BIN="$(command -v multienv || true)"
+if [[ -z "$CLI_BIN" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [[ -x "$SCRIPT_DIR/multienv" ]]; then
+        CLI_BIN="$SCRIPT_DIR/multienv"
+    fi
+fi
+
+# Resolve configuration file
+CONFIG_PATH="${MULTIENV_CONFIG:-}"
+CONFIG_ARG=()
+if [[ -n "$CONFIG_PATH" && -f "$CONFIG_PATH" ]]; then
+    CONFIG_ARG=(--config "$CONFIG_PATH")
+fi
+
+# Query environment properties via python helper or multienv
+get_prop() {
+    local key="$1"
+    local default="$2"
+    python3 -c "
+import sys, os
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
+from pathlib import Path
+
+cand = '${CONFIG_PATH}'
+if not cand or not os.path.isfile(cand):
+    for c in [
+        os.path.expanduser('~/.config/multienv/multienv.toml'),
+        '/etc/multienv/multienv.toml',
+        str(Path(__file__).resolve().parent.parent / 'config' / 'multienv.toml.example')
+    ]:
+        if os.path.isfile(c):
+            cand = c
+            break
+
+try:
+    with open(cand, 'rb') as f:
+        data = tomllib.load(f)
+    env = data.get('environments', {}).get('${ENV_ID}', {})
+    print(env.get('${key}', '${default}'))
+except Exception:
+    print('${default}')
+" 2>/dev/null || echo "$default"
+}
+
+NAME="$(get_prop name "$ENV_ID")"
+COMPOSITOR="$(get_prop compositor "hyprland")"
+CONFIG_FILE_RAW="$(get_prop config_path "")"
+DESKTOP_NAMES="$(get_prop desktop_names "Hyprland:${ENV_ID}")"
+AUTOSTART_RAW="$(get_prop autostart "")"
+
+# Expand paths
+eval "CONFIG_FILE=\"$CONFIG_FILE_RAW\""
+eval "AUTOSTART_SCRIPT=\"$AUTOSTART_RAW\""
+
+# Export environment markers
+export MULTIENV_ACTIVE_ENV="$ENV_ID"
+export XDG_CURRENT_DESKTOP="$DESKTOP_NAMES"
+
+# Execute optional autostart in background if executable
+if [[ -n "$AUTOSTART_SCRIPT" && -x "$AUTOSTART_SCRIPT" ]]; then
+    "$AUTOSTART_SCRIPT" &
+fi
+
+# Check for compositor binary
+if ! command -v "$COMPOSITOR" >/dev/null 2>&1; then
+    # Capitalized Hyprland fallback
+    if [[ "$COMPOSITOR" == "hyprland" ]] && command -v Hyprland >/dev/null 2>&1; then
+        COMPOSITOR="Hyprland"
+    else
+        echo "Error: Compositor '$COMPOSITOR' not found in PATH." >&2
+        exit 1
+    fi
+fi
+
+# Build compositor launch arguments
+COMPOSITOR_ARGS=()
+if [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then
+    COMPOSITOR_ARGS+=(--config "$CONFIG_FILE")
+fi
+
+# Launch under UWSM if available and enabled, otherwise direct exec
+SESSION_MGR="$(get_prop session_manager "uwsm")"
+
+if [[ "$SESSION_MGR" == "uwsm" ]] && command -v uwsm >/dev/null 2>&1; then
+    echo "Launching '$NAME' [$ENV_ID] under UWSM session envelope..."
+    uwsm start -g -1 -e -D "$DESKTOP_NAMES" -- "$COMPOSITOR" "${COMPOSITOR_ARGS[@]}" || true
+else
+    echo "Launching '$NAME' [$ENV_ID] directly with $COMPOSITOR..."
+    exec "$COMPOSITOR" "${COMPOSITOR_ARGS[@]}"
+fi
+
+exit 0

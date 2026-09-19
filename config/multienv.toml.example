@@ -1,0 +1,52 @@
+# Arch Multi-Environment Architecture Master Configuration
+# Location: ~/.config/multienv/multienv.toml (or /etc/multienv/multienv.toml)
+
+[general]
+# Default environment loaded when no explicit autologin or session target is set
+default_environment = "environment-a"
+
+# Path to SDDM autologin configuration (used by the switching engine)
+sddm_autologin_path = "/etc/sddm.conf.d/autologin.conf"
+
+# Directory where Wayland session .desktop files are stored
+wayland_sessions_dir = "/usr/share/wayland-sessions"
+
+# Base directory for runtime state, locks, and logs
+state_dir = "~/.local/state/multienv"
+
+# Autologin username. If empty or unset, resolves dynamically to the invoking user
+autologin_user = ""
+
+# Whether to prompt for confirmation before logging out on switch
+confirm_logout = true
+
+# Session manager to wrap the compositor. Options: "uwsm", "direct"
+session_manager = "uwsm"
+
+# ------------------------------------------------------------------------------
+# ENVIRONMENT DEFINITIONS
+# ------------------------------------------------------------------------------
+
+[environments.environment-a]
+name = "Environment A"
+description = "Primary Production Desktop"
+compositor = "hyprland"
+config_path = "~/.config/multienv/environments/environment-a/hyprland.conf"
+desktop_names = "Hyprland:EnvA"
+session_desktop = "multienv-environment-a.desktop"
+autostart = "~/.config/multienv/environments/environment-a/autostart.sh"
+teardown = "~/.config/multienv/environments/environment-a/teardown.sh"
+display_scale = 1.5
+color_accent = "#58c89c"
+
+[environments.environment-b]
+name = "Environment B"
+description = "Experimental / Minimal Desktop"
+compositor = "hyprland"
+config_path = "~/.config/multienv/environments/environment-b/hyprland.conf"
+desktop_names = "Hyprland:EnvB"
+session_desktop = "multienv-environment-b.desktop"
+autostart = "~/.config/multienv/environments/environment-b/autostart.sh"
+teardown = "~/.config/multienv/environments/environment-b/teardown.sh"
+display_scale = 1.25
+color_accent = "#82aaff"

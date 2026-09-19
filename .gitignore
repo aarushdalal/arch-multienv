@@ -1,0 +1,16 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Sandbox / test state
+tests/sandbox/*
+!tests/sandbox/.gitkeep
+
+# Local user state & logs
+*.log
+.DS_Store
+*.swp
+*.bak
+*.bak.*
+.env

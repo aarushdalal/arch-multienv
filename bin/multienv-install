@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# arch-multienv: Generic System & User Installer / Uninstaller
+# ==============================================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+PREFIX="${PREFIX:-/usr/local}"
+USER_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/multienv"
+ACTION="install"
+
+show_usage() {
+    cat << USAGE
+Usage: multienv-install [OPTIONS]
+
+Options:
+    --prefix <DIR>     Installation directory for binaries (Default: /usr/local)
+    --user             Install binaries to user local bin (~/.local/bin)
+    --uninstall        Remove installed files, session entries, and configurations
+    --help, -h         Show this message
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --prefix)
+            PREFIX="$2"
+            shift 2
+            ;;
+        --user)
+            PREFIX="$HOME/.local"
+            shift
+            ;;
+        --uninstall)
+            ACTION="uninstall"
+            shift
+            ;;
+        --help|-h)
+            show_usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            show_usage
+            exit 1
+            ;;
+    esac
+done
+
+do_install() {
+    echo "=== Installing arch-multienv ==="
+    echo "Target binary prefix: $PREFIX/bin"
+    echo "User configuration:   $USER_CONFIG_DIR"
+
+    # 1. Install binaries
+    local bin_dest="$PREFIX/bin"
+    if [[ ! -d "$bin_dest" ]]; then
+        if [[ -w "$(dirname "$bin_dest")" ]]; then
+            mkdir -p "$bin_dest"
+        else
+            sudo mkdir -p "$bin_dest"
+        fi
+    fi
+
+    echo "Installing executables..."
+    for b in multienv multienv-session multienv-logout; do
+        if [[ -w "$bin_dest" ]]; then
+            install -m 755 "$REPO_ROOT/bin/$b" "$bin_dest/$b"
+        else
+            sudo install -m 755 "$REPO_ROOT/bin/$b" "$bin_dest/$b"
+        fi
+        echo "  Installed $bin_dest/$b"
+    done
+
+    # 2. Setup user configuration directory and initial config
+    if [[ ! -d "$USER_CONFIG_DIR" ]]; then
+        echo "Creating user configuration directory at $USER_CONFIG_DIR..."
+        mkdir -p "$USER_CONFIG_DIR"
+    fi
+
+    if [[ ! -f "$USER_CONFIG_DIR/multienv.toml" ]]; then
+        echo "Installing default configuration template..."
+        cp "$REPO_ROOT/config/multienv.toml.example" "$USER_CONFIG_DIR/multienv.toml"
+        echo "  Created $USER_CONFIG_DIR/multienv.toml"
+    else
+        echo "  Existing configuration found at $USER_CONFIG_DIR/multienv.toml (preserved)"
+    fi
+
+    # 3. Setup example environment configs
+    local env_dir="$USER_CONFIG_DIR/environments"
+    if [[ ! -d "$env_dir" ]]; then
+        mkdir -p "$env_dir"
+        cp -r "$REPO_ROOT/examples/"* "$env_dir/"
+        echo "  Initialized example environments in $env_dir"
+    fi
+
+    echo ""
+    echo "=== Installation Successful ==="
+    echo "Next steps:"
+    echo "1. Verify paths and configure environments in $USER_CONFIG_DIR/multienv.toml"
+    echo "2. Generate Wayland session desktop entries:"
+    echo "     multienv generate-sessions"
+    echo "3. Check configuration and system diagnostics:"
+    echo "     multienv doctor"
+    echo "     multienv list"
+}
+
+do_uninstall() {
+    echo "=== Uninstalling arch-multienv ==="
+    local bin_dest="$PREFIX/bin"
+
+    for b in multienv multienv-session multienv-logout; do
+        if [[ -f "$bin_dest/$b" ]]; then
+            echo "Removing $bin_dest/$b..."
+            if [[ -w "$bin_dest" ]]; then
+                rm -f "$bin_dest/$b"
+            else
+                sudo rm -f "$bin_dest/$b"
+            fi
+        fi
+    done
+
+    # Clean session desktop files
+    local sessions_dir="/usr/share/wayland-sessions"
+    if [[ -d "$sessions_dir" ]]; then
+        for f in "$sessions_dir"/multienv-*.desktop; do
+            if [[ -f "$f" ]]; then
+                echo "Removing session entry: $f..."
+                sudo rm -f "$f"
+            fi
+        done
+    fi
+
+    # Clean SDDM autologin if created by multienv
+    local autologin="/etc/sddm.conf.d/autologin.conf"
+    if [[ -f "$autologin" ]] && grep -q "multienv" "$autologin" 2>/dev/null; then
+        echo "Removing autologin drop-in: $autologin..."
+        sudo rm -f "$autologin"
+    fi
+
+    echo "Binaries and system sessions removed."
+    echo "Note: User configuration at '$USER_CONFIG_DIR' has been preserved."
+    echo "To remove user configurations, manually run: rm -rf '$USER_CONFIG_DIR'"
+}
+
+if [[ "$ACTION" == "install" ]]; then
+    do_install
+else
+    do_uninstall
+fi
