@@ -23,11 +23,18 @@ Rectangle {
         }
     }
 
+    function getSessionCount() {
+        if (typeof sessionModel.rowCount === "function") {
+            return sessionModel.rowCount();
+        }
+        return sessionModel.count || 0;
+    }
+
     // Centered Login Card
     Rectangle {
         id: card
-        width: 360
-        height: 280
+        width: 380
+        height: 310
         anchors.centerIn: parent
         color: "#1a212a"
         radius: 12
@@ -36,7 +43,7 @@ Rectangle {
 
         Column {
             anchors.centerIn: parent
-            spacing: 18
+            spacing: 16
             width: parent.width - 48
 
             // Greeter Title
@@ -78,17 +85,18 @@ Rectangle {
                     onTextChanged: root.loginFailed = false
 
                     Keys.onPressed: {
+                        var count = root.getSessionCount();
                         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                             sddm.login(root.currentUser, passwordInput.text, root.selectedSessionIndex)
                             event.accepted = true
-                        } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Right) {
-                            if (sessionModel.count > 0) {
-                                root.selectedSessionIndex = (root.selectedSessionIndex + 1) % sessionModel.count
+                        } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Right || event.key === Qt.Key_Down) {
+                            if (count > 0) {
+                                root.selectedSessionIndex = (root.selectedSessionIndex + 1) % count
                             }
                             event.accepted = true
-                        } else if (event.key === Qt.Key_Left) {
-                            if (sessionModel.count > 0) {
-                                root.selectedSessionIndex = (root.selectedSessionIndex - 1 + sessionModel.count) % sessionModel.count
+                        } else if (event.key === Qt.Key_Left || event.key === Qt.Key_Up) {
+                            if (count > 0) {
+                                root.selectedSessionIndex = (root.selectedSessionIndex - 1 + count) % count
                             }
                             event.accepted = true
                         }
@@ -140,6 +148,66 @@ Rectangle {
                         }
                     }
                 }
+            }
+
+            // Keyboard Navigation Hint
+            Text {
+                text: "Press [Tab] or [↑/↓/←/→] to switch environment"
+                color: "#4e6070"
+                font.pixelSize: 11
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+        }
+    }
+
+    // Power Actions (Reboot / Shutdown)
+    Row {
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 20
+        anchors.horizontalCenter: parent.horizontalCenter
+        spacing: 16
+
+        Rectangle {
+            width: 84
+            height: 28
+            radius: 4
+            color: "#161d26"
+            border.color: "#2e3a47"
+            border.width: 1
+
+            Text {
+                anchors.centerIn: parent
+                text: "Reboot"
+                color: "#8ea89d"
+                font.pixelSize: 11
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: sddm.reboot()
+            }
+        }
+
+        Rectangle {
+            width: 84
+            height: 28
+            radius: 4
+            color: "#161d26"
+            border.color: "#2e3a47"
+            border.width: 1
+
+            Text {
+                anchors.centerIn: parent
+                text: "Shutdown"
+                color: "#8ea89d"
+                font.pixelSize: 11
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: sddm.powerOff()
             }
         }
     }

@@ -352,22 +352,32 @@ def cmd_switch(args, cfg: dict, cfg_path: Path):
 def cmd_fallback(args, cfg: dict, cfg_path: Path):
     """Emergency reset: removes autologin configuration to restore manual greeter."""
     autologin_path = expand_path(get_general_setting(cfg, "sddm_autologin_path", "/etc/sddm.conf.d/autologin.conf"))
-    print(f"Emergency Fallback: Restoring SDDM manual login screen...")
+    print("Reset: Restoring SDDM manual graphical login screen...")
 
     if not autologin_path.exists():
         print(f"No autologin file at '{autologin_path}'. SDDM is already in manual greeter mode.")
-        return
+    else:
+        try:
+            if os.access(autologin_path, os.W_OK):
+                autologin_path.unlink()
+                print("Successfully removed autologin configuration.")
+            else:
+                subprocess.run(["sudo", "rm", "-f", str(autologin_path)], check=True)
+                print("Successfully removed autologin configuration using sudo.")
+        except Exception as e:
+            print(f"Error removing autologin configuration: {e}", file=sys.stderr)
+            sys.exit(1)
 
-    try:
-        if os.access(autologin_path, os.W_OK):
-            autologin_path.unlink()
-            print("Successfully removed autologin configuration.")
+    if getattr(args, "now", False):
+        print("Initiating immediate logout to show SDDM greeter...")
+        logout_bin = shutil.which("multienv-logout") or str(Path(__file__).resolve().parent / "multienv-logout")
+        if os.path.isfile(logout_bin) and os.access(logout_bin, os.X_OK):
+            subprocess.run([logout_bin])
         else:
-            subprocess.run(["sudo", "rm", "-f", str(autologin_path)], check=True)
-            print("Successfully removed autologin configuration using sudo.")
-    except Exception as e:
-        print(f"Error removing autologin configuration: {e}", file=sys.stderr)
-        sys.exit(1)
+            if shutil.which("uwsm"):
+                subprocess.run(["uwsm", "stop"])
+            elif shutil.which("hyprctl"):
+                subprocess.run(["hyprctl", "dispatch", "exit"])
 
 
 def cmd_doctor(args, cfg: dict, cfg_path: Path):
@@ -493,8 +503,15 @@ def main():
     p_switch.add_argument("--force", "-f", action="store_true", help="Bypass pre-flight validation warnings")
     p_switch.add_argument("--dry-run", action="store_true", help="Print planned actions without writing")
 
-    # fallback
+    # fallback / disable-autologin / greeter
     p_fallback = subparsers.add_parser("fallback", help="Emergency reset: remove autologin to restore SDDM greeter")
+    p_fallback.add_argument("--now", "-n", action="store_true", help="Log out immediately after removing autologin")
+
+    p_disable = subparsers.add_parser("disable-autologin", help="Alias for fallback: disable autologin to restore SDDM greeter")
+    p_disable.add_argument("--now", "-n", action="store_true", help="Log out immediately after removing autologin")
+
+    p_greeter = subparsers.add_parser("greeter", help="Alias for fallback: restore manual SDDM login greeter")
+    p_greeter.add_argument("--now", "-n", action="store_true", help="Log out immediately after removing autologin")
 
     # doctor
     p_doc = subparsers.add_parser("doctor", help="Run comprehensive diagnostics on system dependencies")
@@ -515,6 +532,8 @@ def main():
         "validate": cmd_validate,
         "switch": cmd_switch,
         "fallback": cmd_fallback,
+        "disable-autologin": cmd_fallback,
+        "greeter": cmd_fallback,
         "doctor": cmd_doctor,
         "generate-sessions": cmd_generate_sessions,
     }

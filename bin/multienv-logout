@@ -51,13 +51,14 @@ except Exception:
 fi
 
 # 2. Stop known background graphical workers that could hold the Wayland seat open
-# Common examples: video wallpaper daemons, standalone layer shells
+# Common examples: video wallpaper daemons, standalone layer shells, polkit agents
 for daemon in mpvpaper swww-daemon hyprpaper; do
     if pgrep -x "$daemon" >/dev/null 2>&1; then
         echo "Terminating $daemon..."
         pkill -x "$daemon" 2>/dev/null || true
     fi
 done
+pkill -f 'polkit-agent' 2>/dev/null || true
 
 # 3. Schedule non-blocking background watchdog to guarantee compositor termination
 echo "Scheduling compositor shutdown watchdog (3s timeout)..."
