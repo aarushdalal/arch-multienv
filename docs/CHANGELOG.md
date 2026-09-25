@@ -10,6 +10,8 @@ All notable changes to `arch-multienv` will be documented in this file.
 - **New CLI Commands**: Added `multienv disable-autologin` and `multienv greeter` commands with optional `--now` (`-n`) flag for immediate logout into the SDDM greeter.
 - **Model Compatibility**: Added robust `getSessionCount()` helper supporting both `QAbstractItemModel.rowCount()` and `.count` properties in SDDM QML.
 - **Enhanced Seat Release**: Added explicit Polkit authentication agent termination (`polkit-agent`) to `multienv-logout` to prevent lingering background agents from holding Wayland DRM seats open.
+- **Installer SDDM Theme Flags**: Added `--theme` and `--theme-only` options to `multienv-install` to quickly install, repair, or restore the multi-environment SDDM greeter after distribution upgrades.
+- **Comprehensive UI & Shell Diagnostics**: Expanded `docs/TROUBLESHOOTING.md` and the `arch-multi-environment` skill with verified solutions for SDDM theme overwrites, autologin bypass loops, Wayland layer-shell notification animation jitter, desktop clock punctuation (colon) typography alignment, and modern Quickshell / Qt 6.8+ `MapNode.values` iteration.
 
 ## [1.0.0] - 2026-09-19
 

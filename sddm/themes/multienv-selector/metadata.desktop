@@ -3,6 +3,6 @@ Name=Multi-Environment Selector
 Description=Clean, brand-free SDDM greeter with dynamic multi-environment session pills
 Author=Arch Multi-Environment Architecture
 Type=sddm-theme
-Version=1.0.0
+Version=1.1.0
 MainScript=Main.qml
 ConfigFile=theme.conf

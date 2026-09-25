@@ -51,6 +51,12 @@ multienv switch <environment-id> --now
 # Emergency fallback: restore manual SDDM login greeter
 multienv fallback
 
+# Explicitly disable autologin drop-ins
+multienv disable-autologin
+
+# Return to SDDM greeter immediately
+multienv greeter --now
+
 # Regenerate Wayland session desktop entries
 multienv generate-sessions
 ```

@@ -12,6 +12,10 @@ PREFIX="${PREFIX:-/usr/local}"
 USER_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/multienv"
 ACTION="install"
 
+INSTALL_BINARIES=true
+INSTALL_CONFIG=true
+INSTALL_THEME=false
+
 show_usage() {
     cat << USAGE
 Usage: multienv-install [OPTIONS]
@@ -19,6 +23,8 @@ Usage: multienv-install [OPTIONS]
 Options:
     --prefix <DIR>     Installation directory for binaries (Default: /usr/local)
     --user             Install binaries to user local bin (~/.local/bin)
+    --theme            Install or restore the SDDM multi-environment theme (/usr/share/sddm/themes/multienv-selector)
+    --theme-only       Install or restore only the SDDM theme without touching binaries or configs
     --uninstall        Remove installed files, session entries, and configurations
     --help, -h         Show this message
 USAGE
@@ -32,6 +38,16 @@ while [[ $# -gt 0 ]]; do
             ;;
         --user)
             PREFIX="$HOME/.local"
+            shift
+            ;;
+        --theme)
+            INSTALL_THEME=true
+            shift
+            ;;
+        --theme-only)
+            INSTALL_THEME=true
+            INSTALL_BINARIES=false
+            INSTALL_CONFIG=false
             shift
             ;;
         --uninstall)
@@ -50,62 +66,90 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+install_sddm_theme() {
+    local theme_dest="/usr/share/sddm/themes/multienv-selector"
+    echo "Installing SDDM multi-environment theme to $theme_dest..."
+    if [[ -w "/usr/share/sddm/themes" ]]; then
+        mkdir -p "$theme_dest"
+        cp -r "$REPO_ROOT/sddm/themes/multienv-selector/"* "$theme_dest/"
+    else
+        sudo mkdir -p "$theme_dest"
+        sudo cp -r "$REPO_ROOT/sddm/themes/multienv-selector/"* "$theme_dest/"
+    fi
+    echo "  Installed SDDM theme to $theme_dest"
+    echo "  Tip: To activate this theme, ensure /etc/sddm.conf.d/10-theme.conf contains:"
+    echo "    [Theme]"
+    echo "    Current=multienv-selector"
+}
+
 do_install() {
     echo "=== Installing arch-multienv ==="
-    echo "Target binary prefix: $PREFIX/bin"
-    echo "User configuration:   $USER_CONFIG_DIR"
 
     # 1. Install binaries
-    local bin_dest="$PREFIX/bin"
-    if [[ ! -d "$bin_dest" ]]; then
-        if [[ -w "$(dirname "$bin_dest")" ]]; then
-            mkdir -p "$bin_dest"
-        else
-            sudo mkdir -p "$bin_dest"
-        fi
-    fi
+    if [[ "$INSTALL_BINARIES" == true ]]; then
+        echo "Target binary prefix: $PREFIX/bin"
+        echo "User configuration:   $USER_CONFIG_DIR"
 
-    echo "Installing executables..."
-    for b in multienv multienv-session multienv-logout; do
-        if [[ -w "$bin_dest" ]]; then
-            install -m 755 "$REPO_ROOT/bin/$b" "$bin_dest/$b"
-        else
-            sudo install -m 755 "$REPO_ROOT/bin/$b" "$bin_dest/$b"
+        local bin_dest="$PREFIX/bin"
+        if [[ ! -d "$bin_dest" ]]; then
+            if [[ -w "$(dirname "$bin_dest")" ]]; then
+                mkdir -p "$bin_dest"
+            else
+                sudo mkdir -p "$bin_dest"
+            fi
         fi
-        echo "  Installed $bin_dest/$b"
-    done
+
+        echo "Installing executables..."
+        for b in multienv multienv-session multienv-logout; do
+            if [[ -w "$bin_dest" ]]; then
+                install -m 755 "$REPO_ROOT/bin/$b" "$bin_dest/$b"
+            else
+                sudo install -m 755 "$REPO_ROOT/bin/$b" "$bin_dest/$b"
+            fi
+            echo "  Installed $bin_dest/$b"
+        done
+    fi
 
     # 2. Setup user configuration directory and initial config
-    if [[ ! -d "$USER_CONFIG_DIR" ]]; then
-        echo "Creating user configuration directory at $USER_CONFIG_DIR..."
-        mkdir -p "$USER_CONFIG_DIR"
+    if [[ "$INSTALL_CONFIG" == true ]]; then
+        if [[ ! -d "$USER_CONFIG_DIR" ]]; then
+            echo "Creating user configuration directory at $USER_CONFIG_DIR..."
+            mkdir -p "$USER_CONFIG_DIR"
+        fi
+
+        if [[ ! -f "$USER_CONFIG_DIR/multienv.toml" ]]; then
+            echo "Installing default configuration template..."
+            cp "$REPO_ROOT/config/multienv.toml.example" "$USER_CONFIG_DIR/multienv.toml"
+            echo "  Created $USER_CONFIG_DIR/multienv.toml"
+        else
+            echo "  Existing configuration found at $USER_CONFIG_DIR/multienv.toml (preserved)"
+        fi
+
+        # 3. Setup example environment configs
+        local env_dir="$USER_CONFIG_DIR/environments"
+        if [[ ! -d "$env_dir" ]]; then
+            mkdir -p "$env_dir"
+            cp -r "$REPO_ROOT/examples/"* "$env_dir/"
+            echo "  Initialized example environments in $env_dir"
+        fi
     fi
 
-    if [[ ! -f "$USER_CONFIG_DIR/multienv.toml" ]]; then
-        echo "Installing default configuration template..."
-        cp "$REPO_ROOT/config/multienv.toml.example" "$USER_CONFIG_DIR/multienv.toml"
-        echo "  Created $USER_CONFIG_DIR/multienv.toml"
-    else
-        echo "  Existing configuration found at $USER_CONFIG_DIR/multienv.toml (preserved)"
-    fi
-
-    # 3. Setup example environment configs
-    local env_dir="$USER_CONFIG_DIR/environments"
-    if [[ ! -d "$env_dir" ]]; then
-        mkdir -p "$env_dir"
-        cp -r "$REPO_ROOT/examples/"* "$env_dir/"
-        echo "  Initialized example environments in $env_dir"
+    # 4. Install SDDM theme if requested
+    if [[ "$INSTALL_THEME" == true ]]; then
+        install_sddm_theme
     fi
 
     echo ""
     echo "=== Installation Successful ==="
-    echo "Next steps:"
-    echo "1. Verify paths and configure environments in $USER_CONFIG_DIR/multienv.toml"
-    echo "2. Generate Wayland session desktop entries:"
-    echo "     multienv generate-sessions"
-    echo "3. Check configuration and system diagnostics:"
-    echo "     multienv doctor"
-    echo "     multienv list"
+    if [[ "$INSTALL_BINARIES" == true ]]; then
+        echo "Next steps:"
+        echo "1. Verify paths and configure environments in $USER_CONFIG_DIR/multienv.toml"
+        echo "2. Generate Wayland session desktop entries:"
+        echo "     multienv generate-sessions"
+        echo "3. Check configuration and system diagnostics:"
+        echo "     multienv doctor"
+        echo "     multienv list"
+    fi
 }
 
 do_uninstall() {
@@ -132,6 +176,17 @@ do_uninstall() {
                 sudo rm -f "$f"
             fi
         done
+    fi
+
+    # Clean SDDM theme if installed
+    local theme_dest="/usr/share/sddm/themes/multienv-selector"
+    if [[ -d "$theme_dest" ]]; then
+        echo "Removing SDDM theme: $theme_dest..."
+        if [[ -w "$theme_dest" ]]; then
+            rm -rf "$theme_dest"
+        else
+            sudo rm -rf "$theme_dest"
+        fi
     fi
 
     # Clean SDDM autologin if created by multienv
