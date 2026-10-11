@@ -146,3 +146,8 @@
 ### How to use fingerprint login on the multi-env SDDM logout screen
 - **Password Login**: Type your password and hit **Enter** for immediate authentication.
 - **Fingerprint Login**: Press **Enter** on an empty password field or click the **󰈷 Scan Fingerprint to Log In** badge. The greeter will display `Place finger on reader...`. Touch the fingerprint scanner with your enrolled finger to log into the selected environment.
+
+
+### Theme falls back to the embedded default
+
+A `Library import requires a version` error with this Qt 6 theme means the Qt 5 greeter was selected. Ensure `metadata.desktop` contains `QtVersion=6` under `[SddmGreeterTheme]`, and that `sddm-greeter-qt6` is installed. Use its `--test-mode --theme` preview before deploying. The theme declaration is read when the next greeter is created; restarting SDDM terminates active sessions.

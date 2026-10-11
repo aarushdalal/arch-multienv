@@ -1,9 +1,5 @@
-# arch-multienv 1.3.0
+# arch-multienv 1.3.1
 
-A responsive floating SDDM chooser exposes the full installed session list and retains selection, duplicate-login protection and visible authentication failures. Theme-owned motion supports 19 styles, intensity and reduced motion.
+Fix the login screen falling back to SDDM's default theme. The theme now declares `QtVersion=6`, ensuring SDDM launches its Qt 6 greeter for the existing Qt 6 QML. The floating design and session behavior are preserved.
 
-Logout requests exact window closure and pauses for remaining windows. Force is explicit; returning to the greeter does not change autologin policy. Session wrappers preserve launch failures, and the installer records exact preimages and ownership for conservative removal. No PAM, USB or vendor theme changes are installed.
-
-Validation: five backend regressions, the existing script suite, isolated install/update/removal, and native Qt greeter fixtures passed. Run `/usr/lib/qt6/bin/qml tests/qml/GreeterTests.qml` in a graphical Qt 6 session and check for `GREETER_TEST_OK`; it uses simulated authentication and inert power actions. Actual password/fingerprint authentication and a full logout/login switch remain interactive checks.
-
-Current files passed the release privacy guard. The preview uses sample data. New commits use a GitHub noreply address; existing public history is preserved.
+Validation: metadata regression, the six backend regressions, native greeter fixtures, and the actual `sddm-greeter-qt6 --test-mode` theme load. No display-manager restart or active-session termination was performed. Existing public history is preserved and new commits/tags use GitHub noreply metadata.

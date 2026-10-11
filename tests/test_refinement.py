@@ -1,3 +1,4 @@
+import configparser
 import importlib.machinery
 import importlib.util
 import json,os,shutil,subprocess,tempfile,unittest
@@ -10,6 +11,13 @@ def load(name,path):
  module=importlib.util.module_from_spec(spec);loader.exec_module(module);return module
 
 class RefinementTests(unittest.TestCase):
+ def test_theme_selects_qt6_greeter(self):
+  metadata=configparser.ConfigParser()
+  metadata.read(ROOT/'sddm/themes/multienv-selector/metadata.desktop')
+  # SDDM defaults to its Qt 5 binary without this field, then falls back.
+  self.assertEqual(metadata['SddmGreeterTheme'].get('QtVersion'),'6')
+  self.assertEqual(metadata['SddmGreeterTheme'].get('MainScript'),'Main.qml')
+
  def test_greeter_switch_does_not_change_autologin(self):
   with tempfile.TemporaryDirectory() as folder:
    root=Path(folder);config=root/'config/multienv';config.mkdir(parents=True)
