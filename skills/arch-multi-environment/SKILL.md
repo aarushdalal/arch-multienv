@@ -22,7 +22,7 @@ In this architecture, multiple distinct desktop environments (e.g., Environment 
 1. **Single User & Kernel**: All environments run under the primary user account ($USER) sharing the Linux kernel, system packages in `/usr/bin`, and user data in `$HOME`.
 2. **Strict Configuration Isolation**: Compositor configurations, desktop shells, scaling factors, and visual themes are isolated per environment.
 3. **Session Lifecycle Envelopes**: Each session is launched with distinct Wayland desktop names and wrapped in UWSM systemd targets to prevent orphaned processes.
-4. **Signal Trapping for Stability**: Session wrappers enforce signal traps (`trap 'exit 0' TERM HUP INT EXIT`) so that display managers like SDDM never see abnormal termination codes.
+4. **Preserve Launch Failures**: Session wrappers return compositor or UWSM failures. Never mask errors with an EXIT trap.
 5. **Universal Portability**: Agents must always use `$HOME`, `$XDG_CONFIG_HOME`, `$XDG_STATE_HOME`, and relative paths—never assume a specific username, machine hostname, or distribution rice.
 
 ---

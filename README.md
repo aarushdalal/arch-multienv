@@ -12,7 +12,7 @@ Switch seamlessly between independent desktop profiles (e.g. Work, Gaming, Minim
 
 - **Shared Core**: A single kernel, root filesystem, package tree (`/usr/bin`), hardware configuration, and user home directory (`$HOME`).
 - **Isolated Per-Environment Layer**: Independent compositor configurations (`hyprland.conf`), display scaling factors, desktop shells/bars, autostart daemons, keybindings, and window rules.
-- **Unified Switching Engine**: An intelligent CLI (`multienv`) and generic display manager integration (SDDM) allowing instant profile transitions via login screen pills or one-line terminal commands.
+- **Unified Switching Engine**: An intelligent CLI (`multienv`) and generic display manager integration (SDDM) allowing profile selection via the login screen chooser or one-line terminal commands.
 
 ---
 
@@ -22,7 +22,7 @@ To be explicitly clear about architectural boundaries:
 - **NOT a Dual Boot**: Does not require separate disk partitions, duplicate root filesystems, or dual EFI entries.
 - **NOT a Virtual Machine or Container**: All environments run directly bare-metal with full GPU acceleration, zero virtualization overhead, and shared system resources.
 - **NOT a Multi-User Setup**: All profiles operate within your primary user account (`$USER`). You do not need to manage secondary Unix accounts, file permissions, or duplicate dotfiles.
-- **NOT a Rice Switcher Script**: Rather than frantically moving or symlinking files in `~/.config` while applications are running (which risks corruption and race conditions), each profile runs in a dedicated Wayland session envelope with isolated runtime configuration paths and protected signal traps.
+- **NOT a Rice Switcher Script**: Rather than frantically moving or symlinking files in `~/.config` while applications are running (which risks corruption and race conditions), each profile runs in a dedicated Wayland session envelope with isolated runtime configuration paths and visible launch failures.
 
 ---
 
@@ -41,7 +41,7 @@ To be explicitly clear about architectural boundaries:
 │                       Session Dispatch Layer (SDDM)                     │
 │  • Session Discovery: /usr/share/wayland-sessions/                      │
 │  • Dynamic Autologin: /etc/sddm.conf.d/autologin.conf                   │
-│  • Generic Selector Theme with Dynamic Session Pills                    │
+│  • Generic Selector Theme with Full Session Chooser                    │
 └──────────────────┬───────────────────────────────────┬──────────────────┘
                    │                                   │
                    ▼                                   ▼
@@ -61,16 +61,16 @@ To be explicitly clear about architectural boundaries:
 
 ## Key Features
 
-1. **Crash-Proof Signal Trapping**:
-   Session wrappers trap termination signals (`trap 'exit 0' TERM HUP INT EXIT`) to ensure display managers like SDDM never receive non-zero return codes, preventing black screens and crash loops.
+1. **Visible Launch Failures**:
+   The session wrapper preserves the compositor or UWSM exit status so launch errors can be diagnosed. Missing or invalid profiles fail before launching.
 2. **UWSM Session Envelope**:
    Compositors are supervised under systemd user session targets (`wayland-session-envelope@*.target`) ensuring clean lifecycle tracking, environment injection, and complete process cleanup upon logout.
 3. **Declarative Configuration**:
    All environments are configured in a clean, human-readable TOML file (`~/.config/multienv/multienv.toml`).
 4. **Pre-Flight Validation**:
    The switching CLI automatically verifies target configuration syntax and prerequisites before modifying login state, preventing unbootable sessions.
-5. **Seat-Safe Teardown Watchdog**:
-   A 3-second non-blocking watchdog ensures video wallpapers, background watchers, and layer shells release their Wayland seat lock so the greeter loads cleanly.
+5. **Save-Aware Session Teardown**:
+   Window close requests are scoped to the selected compositor. Remaining windows pause logout with exit code 2; only explicit --force bypasses that pause. The owned UWSM envelope handles session teardown.
 6. **Built-In Emergency Fallback**:
    If an invalid environment configuration is encountered, `multienv fallback` restores SDDM to manual greeter mode instantly from any virtual console (TTY).
 7. **Universal AI Skill Included**:
@@ -128,14 +128,14 @@ multienv switch environment-b --now
 arch-multienv/
 ├── bin/
 │   ├── multienv                  # Master management & switching CLI
-│   ├── multienv-session          # Protected session wrapper with signal traps
+│   ├── multienv-session          # Session wrapper preserving launch status
 │   ├── multienv-logout           # Graceful teardown & seat-release engine
 │   └── multienv-install          # System installer & uninstaller
 ├── config/
 │   ├── multienv.toml.example     # Master declarative configuration template
 │   └── multienv.env.example      # Shell environment template
 ├── sddm/
-│   └── themes/multienv-selector/ # Generic, brand-free SDDM login screen with pills
+│   └── themes/multienv-selector/ # Generic SDDM login screen with full session chooser
 ├── examples/
 │   ├── environment-a/            # Complete example: Primary / Production Desktop
 │   └── environment-b/            # Complete example: Minimal / Development Desktop
@@ -183,3 +183,15 @@ We acknowledge the upstream open-source communities behind Hyprland, UWSM, SDDM,
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
+
+
+## Refined selector preview
+
+![Sample greeter](assets/showcase/greeter-preview.png)
+
+Native Qt component render with sample account/session data and inert
+authentication and power callbacks. See tests/qml/GreeterPreview.qml.
+
+Current payloads are checked for operational identity and credentials. Public
+repository/license attribution remains intentional; older public history is
+preserved. Future commits use a GitHub noreply address.

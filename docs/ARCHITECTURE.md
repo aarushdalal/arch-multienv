@@ -8,7 +8,7 @@ How can a user maintain completely different workflows, display scalings, deskto
 The solution lies in a layered separation of concerns:
 1. **Shared Foundation**: All core OS services, kernel, hardware drivers, user files, and application binaries remain strictly unified.
 2. **Session Envelope**: Each environment is isolated at the session entrypoint and compositor execution level.
-3. **Coordinated Switching**: A lightweight coordination engine manages login targets, signal traps, and graceful seat release.
+3. **Coordinated Switching**: A lightweight coordination engine manages login targets, compositor launch status, and graceful session teardown.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
@@ -25,7 +25,7 @@ The solution lies in a layered separation of concerns:
 │                    Display Manager (SDDM)                       │
 │  • Discovers sessions in /usr/share/wayland-sessions/           │
 │  • Evaluates /etc/sddm.conf.d/autologin.conf                    │
-│  • Renders dynamic session selector pills                       │
+│  • Renders a full session selector                       │
 └────────────────┬───────────────────────────────┬────────────────┘
                  │                               │
                  ▼                               ▼

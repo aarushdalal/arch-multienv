@@ -2,6 +2,25 @@
 
 All notable changes to `arch-multienv` will be documented in this file.
 
+## [1.3.0] - 2026-10-11
+
+- Responsive floating greeter with a dynamic full session model, confirmed power actions and duplicate-login prevention.
+- Save-aware scoped logout; explicit force only, no detached watchdog or broad process killing.
+- Safe path expansion, compositor readiness before autostart, preserved launch failures.
+- Serialized atomic next-session/session-entry writes with preimages, accurate active-instance detection, failing doctor exit status.
+- Installer ownership journal and preimages; preserve modified files and existing profiles on uninstall. Removed automatic host-specific PAM/USB edits and vendor-theme overwrite.
+- Backend and greeter fixture regressions passed. Actual authentication and full profile switching still require an interactive host test.
+
+Earlier entries describe historical behavior superseded by 1.3.0.
+
+## [1.2.0] - 2026-09-30
+
+### Added
+- **SDDM Biometric Fingerprint Authentication**: Added interactive fingerprint scan badge and direct Enter key trigger on the login card, enabling seamless biometric login into the selected environment.
+- **Biometric PAM & Udev Setup Automation**: Added `--fingerprint` flag to `bin/multienv-install` to automatically install the USB autosuspend prevention rule (`/etc/udev/rules.d/99-fingerprint-autosuspend.rules`) and configure `/etc/pam.d/sddm` for dual password and fingerprint authentication (`pam_fprintd.so`).
+- **Targeted Dual-Session Navigation**: Updated SDDM greeter pills to dedicated environment selectors with active status indicators.
+- **Biometric Diagnostics**: Expanded `docs/TROUBLESHOOTING.md` with troubleshooting steps for `fprintd` D-Bus claim backoff and kernel USB autosuspend timeouts.
+
 ## [1.1.0] - 2026-09-26
 
 ### Added

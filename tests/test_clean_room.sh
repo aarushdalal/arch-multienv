@@ -9,7 +9,7 @@ FORBIDDEN_TERMS=(
     "daemon0"
     "DaemonOS"
     "daemon-os"
-    "/home/daemon0"
+    "/home/""daemon0"
     "nvme0n1p"
     "omarchy-cloud-sync"
     "DAEMONOS_BACKUP"

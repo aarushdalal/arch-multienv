@@ -1,77 +1,41 @@
-# Installation & Setup Guide
+# Installation
 
-## 1. System Prerequisites
+Requires Python 3.11+, Hyprland and SDDM. UWSM is required when selected as the
+session manager. Install required packages using your distribution tools.
 
-The architecture is built for **Arch Linux** (and Arch-based distributions) running Wayland.
+Run `./bin/multienv-install --user --dry-run` to review destinations, then
+`./bin/multienv-install --user` to install commands under ~/.local/bin. Ensure
+that directory is in PATH. Existing user configuration is preserved. Review
+the example profiles and paths before generating sessions.
 
-### Core Required Packages:
-```bash
-sudo pacman -S hyprland python sddm
+`--prefix ABSOLUTE_DIRECTORY` selects another command prefix. A system prefix
+requires running the installer with appropriate privileges. `--theme` installs
+the owned MultiEnv theme separately with a privileged helper; `--theme-only`
+installs only its files. Preimages and installed hashes are recorded in the
+prefix's share/arch-multienv/install directory (or /var/lib/arch-multienv/theme
+for the theme-only operation).
+
+Activate the theme with a separate reviewed SDDM drop-in containing:
+
+```ini
+[Theme]
+Current=multienv-selector
 ```
 
-### Strongly Recommended Packages:
-- **UWSM**: `sudo pacman -S uwsm` (Provides robust systemd session envelope management).
-- **TOML Support**: Python 3.11+ includes `tomllib` in the standard library.
+Review existing SDDM configuration precedence before activation. No vendor
+theme, PAM stack or USB rule is overwritten. `--fingerprint` explains that
+fprintd setup is host-specific and returns an error; password login remains
+available. Fingerprint UI needs an already configured authentication backend.
 
----
+Run `multienv generate-sessions`, `multienv validate` and `multienv doctor` after
+reviewing the profile definitions. Generation and next-session writes preserve
+preimages. Do not restart SDDM during an active session.
 
-## 2. Installation Steps
+`--uninstall` restores/removes unchanged files recorded in the ownership journal.
+Locally modified files, user profiles, session entries and autologin settings
+are preserved. Review the journal and remaining files before manual cleanup.
 
-### Step 1: Clone the Repository
-```bash
-git clone https://github.com/aarushdalal/arch-multienv.git
-cd arch-multienv
-```
-
-### Step 2: Run the Installer
-Install executables to `/usr/local/bin` (or use `--user` for `~/.local/bin`):
-```bash
-./bin/multienv-install
-```
-
-The installer will:
-1. Install `multienv`, `multienv-session`, and `multienv-logout`.
-2. Initialize `~/.config/multienv/multienv.toml` if not already present.
-3. Install sample environment definitions to `~/.config/multienv/environments/`.
-
-### Step 3: Generate Wayland Session Entries
-Create the `.desktop` entries in `/usr/share/wayland-sessions/`:
-```bash
-multienv generate-sessions
-```
-
-### Step 4: Validate Installation
-Run the diagnostic doctor to verify all paths and dependencies:
-```bash
-multienv doctor
-```
-
----
-
-## 3. SDDM Theme Setup (Optional but Recommended)
-
-To enable dynamic visual session pill buttons on the SDDM login screen:
-1. Copy the generic theme to `/usr/share/sddm/themes/`:
-   ```bash
-   sudo cp -r sddm/themes/multienv-selector /usr/share/sddm/themes/
-   ```
-2. Set the theme in `/etc/sddm.conf.d/10-theme.conf`:
-   ```ini
-   [Theme]
-   Current=multienv-selector
-   ```
-3. Enable session memory in `/etc/sddm.conf.d/99-session.conf`:
-   ```ini
-   [Users]
-   RememberLastSession=true
-   RememberLastUser=true
-   ```
-
----
-
-## 4. Uninstallation
-
-To cleanly remove `arch-multienv` without affecting any user data:
-```bash
-multienv-install --uninstall
-```
+The theme supports `MotionPreset` (all 19 existing names), `MotionIntensity`
+(subtle/balanced/expressive), and `ReducedMotion` in theme.conf. Greeter motion
+uses this safe installed configuration; it does not read a logged-in user
+shell or silently elevate privileges when that user changes a preset.

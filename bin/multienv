@@ -8,6 +8,9 @@ import argparse
 import getpass
 import os
 import shutil
+import re
+import tempfile
+import time
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +24,64 @@ except ImportError:
     except ImportError:
         tomllib = None
 
+
+
+ATOMIC_WRITER = r"""
+import os, sys, tempfile, shutil, time, fcntl
+from pathlib import Path
+path = Path(sys.argv[1]); path.parent.mkdir(parents=True, exist_ok=True)
+fd = os.open(path.parent / ('.' + path.name + '.lock'), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+with os.fdopen(fd, 'w') as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    if path.is_symlink(): raise ValueError('Refusing to replace a symlink')
+    if path.exists(): shutil.copy2(path, path.with_name(path.name + '.bak-' + str(time.time_ns())))
+    descriptor, temporary = tempfile.mkstemp(prefix='.' + path.name, dir=path.parent)
+    try:
+        with os.fdopen(descriptor, 'wb') as stream:
+            stream.write(sys.stdin.buffer.read()); stream.flush(); os.fsync(stream.fileno())
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_DIRECTORY)
+        try: os.fsync(directory)
+        finally: os.close(directory)
+    finally: Path(temporary).unlink(missing_ok=True)
+"""
+
+def write_atomic(path, content):
+    writable = os.access(path.parent if path.parent.exists() else path.parent.parent, os.W_OK)
+    command = [sys.executable, '-c', ATOMIC_WRITER, str(path)]
+    if not writable: command = ['sudo'] + command
+    subprocess.run(command, input=content, text=True, check=True)
+
+ATOMIC_REMOVER = r"""
+import os, sys, shutil, time, fcntl
+from pathlib import Path
+path = Path(sys.argv[1])
+fd = os.open(path.parent / ('.' + path.name + '.lock'), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+with os.fdopen(fd, 'w') as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    if path.is_symlink(): raise ValueError('Refusing to remove a symlink')
+    if path.exists():
+        shutil.copy2(path, path.with_name(path.name + '.bak-' + str(time.time_ns())))
+        path.unlink()
+        directory = os.open(path.parent, os.O_DIRECTORY)
+        try: os.fsync(directory)
+        finally: os.close(directory)
+"""
+
+def retire_atomic(path):
+    command = [sys.executable, '-c', ATOMIC_REMOVER, str(path)]
+    if not os.access(path.parent, os.W_OK): command = ['sudo'] + command
+    subprocess.run(command, check=True)
+
+def session_filename(value):
+    if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_.-]+\.desktop', value):
+        raise ValueError('Session filename must be a basename ending in .desktop')
+    return value
+
+def desktop_quote(value):
+    if '\n' in value or '\r' in value: raise ValueError('Newlines are not valid in desktop fields')
+    return '"' + value.replace('\\', '\\\\').replace('"', '\\"').replace('`', '\\`').replace('$', '\\$').replace('%', '%%') + '"'
 
 def expand_path(p: str) -> Path:
     """Expand user and environment variables in path."""
@@ -90,24 +151,24 @@ def cmd_status(args, cfg: dict, cfg_path: Path):
     xdg_desktop = os.environ.get("XDG_CURRENT_DESKTOP", "Unknown / Not Set")
     print(f"Current Desktop ($XDG_CURRENT_DESKTOP): {xdg_desktop}")
 
-    # 2. Inspect active compositor commandline
+    # Inspect the selected compositor instance using NUL-separated argv.
     running_config = "None detected"
     active_env_id = None
     try:
-        ps_out = subprocess.check_output(
-            ["pgrep", "-a", "Hyprland"],
-            stderr=subprocess.DEVNULL,
-            text=True
-        )
-        for line in ps_out.strip().splitlines():
-            if "--config" in line:
-                parts = line.split()
-                if "--config" in parts:
-                    idx = parts.index("--config")
-                    if idx + 1 < len(parts):
-                        running_config = parts[idx + 1]
-    except Exception:
-        running_config = "Hyprland not running or cannot inspect process"
+        import json
+        instances = json.loads(subprocess.check_output(["hyprctl", "instances", "-j"], text=True))
+        signature = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+        selected = next((item for item in instances if item.get("instance") == signature), None)
+        if selected:
+            proc = Path("/proc") / str(selected["pid"])
+            if proc.stat().st_uid == os.getuid():
+                argv = [value.decode() for value in (proc / "cmdline").read_bytes().split(b"\0") if value]
+                if "--config" in argv:
+                    running_config = argv[argv.index("--config") + 1]
+                else:
+                    running_config = str(Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home()/".config"))) / "hypr/hyprland.lua")
+    except (OSError, ValueError, KeyError, IndexError, subprocess.SubprocessError):
+        pass
 
     print(f"Running Compositor Config: {running_config}")
 
@@ -115,7 +176,7 @@ def cmd_status(args, cfg: dict, cfg_path: Path):
     envs = get_environments(cfg)
     for env_id, env_data in envs.items():
         cfg_expanded = str(expand_path(env_data.get("config_path", "")))
-        if running_config and (running_config == cfg_expanded or running_config.endswith(env_data.get("config_path", ""))):
+        if env_data.get("config_path") and running_config == cfg_expanded:
             active_env_id = env_id
             break
 
@@ -255,7 +316,7 @@ def cmd_switch(args, cfg: dict, cfg_path: Path):
     # 1. Pre-flight validation
     if not args.force:
         issues = validate_environment(target, env_data, cfg)
-        critical_issues = [i for i in issues if "warning" not in i.lower()]
+        critical_issues = issues
         if critical_issues:
             print(f"Error: Target environment '{target}' failed pre-flight checks:", file=sys.stderr)
             for issue in critical_issues:
@@ -264,7 +325,7 @@ def cmd_switch(args, cfg: dict, cfg_path: Path):
             sys.exit(1)
 
     # 2. Determine target session file
-    session_desktop = env_data.get("session_desktop", f"multienv-{target}.desktop")
+    session_desktop = session_filename(env_data.get("session_desktop", f"multienv-{target}.desktop"))
 
     # 3. Determine autologin user
     autologin_user = get_general_setting(cfg, "autologin_user", "")
@@ -273,6 +334,8 @@ def cmd_switch(args, cfg: dict, cfg_path: Path):
 
     # 4. Write to SDDM autologin configuration
     autologin_path = expand_path(get_general_setting(cfg, "sddm_autologin_path", "/etc/sddm.conf.d/autologin.conf"))
+    if any(c in autologin_user for c in "\r\n"):
+        raise ValueError("Invalid autologin user")
     content = f"[Autologin]\nUser={autologin_user}\nSession={session_desktop}\n"
 
     print(f"Setting next session to: {env_name} ({session_desktop})")
@@ -282,37 +345,10 @@ def cmd_switch(args, cfg: dict, cfg_path: Path):
         print("[DRY-RUN] Content:\n" + content)
         return
 
-    # Ensure parent directory exists or can be written
-    parent = autologin_path.parent
-    if not parent.exists():
-        try:
-            subprocess.run(["sudo", "mkdir", "-p", str(parent)], check=True)
-        except Exception as e:
-            print(f"Error creating directory '{parent}': {e}", file=sys.stderr)
-            sys.exit(1)
-
-    # Write file (try direct write, fallback to sudo)
-    written = False
     try:
-        if os.access(parent, os.W_OK) and (not autologin_path.exists() or os.access(autologin_path, os.W_OK)):
-            with open(autologin_path, "w") as f:
-                f.write(content)
-            written = True
-    except Exception:
-        pass
-
-    if not written:
-        try:
-            proc = subprocess.Popen(["sudo", "tee", str(autologin_path)], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
-            proc.communicate(input=content.encode("utf-8"))
-            if proc.returncode == 0:
-                written = True
-        except Exception as e:
-            print(f"Error writing to '{autologin_path}' with sudo: {e}", file=sys.stderr)
-            sys.exit(1)
-
-    if not written:
-        print(f"Failed to write autologin configuration to '{autologin_path}'.", file=sys.stderr)
+        write_atomic(autologin_path, content)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print("Unable to update next session: " + str(error), file=sys.stderr)
         sys.exit(1)
 
     print(f"Successfully configured next session for '{autologin_user}' as '{env_name}'.")
@@ -338,13 +374,11 @@ def cmd_switch(args, cfg: dict, cfg_path: Path):
         print("Initiating graceful logout...")
         logout_bin = shutil.which("multienv-logout") or str(Path(__file__).resolve().parent / "multienv-logout")
         if os.path.isfile(logout_bin) and os.access(logout_bin, os.X_OK):
-            subprocess.run([logout_bin])
+            result = subprocess.run([logout_bin])
+            if result.returncode: sys.exit(result.returncode)
         else:
-            # Fallback to uwsm stop or hyprctl dispatch exit
-            if shutil.which("uwsm"):
-                subprocess.run(["uwsm", "stop"])
-            elif shutil.which("hyprctl"):
-                subprocess.run(["hyprctl", "dispatch", "exit"])
+            print("Logout helper is missing; session selection was saved. Install multienv-logout before logging out.", file=sys.stderr)
+            sys.exit(1)
     else:
         print(f"Session updated. Next time you log out or reboot, you will enter {env_name}.")
 
@@ -358,12 +392,8 @@ def cmd_fallback(args, cfg: dict, cfg_path: Path):
         print(f"No autologin file at '{autologin_path}'. SDDM is already in manual greeter mode.")
     else:
         try:
-            if os.access(autologin_path, os.W_OK):
-                autologin_path.unlink()
-                print("Successfully removed autologin configuration.")
-            else:
-                subprocess.run(["sudo", "rm", "-f", str(autologin_path)], check=True)
-                print("Successfully removed autologin configuration using sudo.")
+            retire_atomic(autologin_path)
+            print("Autologin disabled; a recovery copy was preserved.")
         except Exception as e:
             print(f"Error removing autologin configuration: {e}", file=sys.stderr)
             sys.exit(1)
@@ -372,12 +402,11 @@ def cmd_fallback(args, cfg: dict, cfg_path: Path):
         print("Initiating immediate logout to show SDDM greeter...")
         logout_bin = shutil.which("multienv-logout") or str(Path(__file__).resolve().parent / "multienv-logout")
         if os.path.isfile(logout_bin) and os.access(logout_bin, os.X_OK):
-            subprocess.run([logout_bin])
+            result = subprocess.run([logout_bin])
+            if result.returncode: sys.exit(result.returncode)
         else:
-            if shutil.which("uwsm"):
-                subprocess.run(["uwsm", "stop"])
-            elif shutil.which("hyprctl"):
-                subprocess.run(["hyprctl", "dispatch", "exit"])
+            print("Logout helper is missing; the greeter setting was saved.", file=sys.stderr)
+            sys.exit(1)
 
 
 def cmd_doctor(args, cfg: dict, cfg_path: Path):
@@ -432,6 +461,7 @@ def cmd_doctor(args, cfg: dict, cfg_path: Path):
         print("All core diagnostics passed. System is operational.")
     else:
         print("One or more warnings or missing components detected. Review items above.")
+        sys.exit(1)
 
 
 def cmd_generate_sessions(args, cfg: dict, cfg_path: Path):
@@ -442,17 +472,23 @@ def cmd_generate_sessions(args, cfg: dict, cfg_path: Path):
     print(f"Generating Wayland session entries into: {out_dir}")
     multienv_session_bin = shutil.which("multienv-session") or "/usr/local/bin/multienv-session"
 
+    failures = []
     for env_id, data in envs.items():
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", env_id): raise ValueError("Invalid environment ID")
         name = data.get("name", env_id)
         desc = data.get("description", f"Multi-Environment {name}")
         desktop_names = data.get("desktop_names", f"Hyprland:{env_id}")
-        session_file = data.get("session_desktop", f"multienv-{env_id}.desktop")
+        session_file = session_filename(data.get("session_desktop", f"multienv-{env_id}.desktop"))
         target_path = out_dir / session_file
 
+        for field in [name, desc, desktop_names]:
+            if "\n" in field or "\r" in field: raise ValueError("Invalid desktop field")
+        command = " ".join(desktop_quote(v) for v in [multienv_session_bin, "--config", str(cfg_path.resolve()), env_id])
         entry_content = f"""[Desktop Entry]
 Name={name}
 Comment={desc}
-Exec={multienv_session_bin} {env_id}
+TryExec={multienv_session_bin}
+Exec={command}
 Type=Application
 DesktopNames={desktop_names}
 """
@@ -461,19 +497,12 @@ DesktopNames={desktop_names}
             continue
 
         try:
-            if os.access(out_dir, os.W_OK):
-                with open(target_path, "w") as f:
-                    f.write(entry_content)
-                print(f"[CREATED] {target_path}")
-            else:
-                proc = subprocess.Popen(["sudo", "tee", str(target_path)], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
-                proc.communicate(input=entry_content.encode("utf-8"))
-                if proc.returncode == 0:
-                    print(f"[CREATED] {target_path} (via sudo)")
-                else:
-                    print(f"[FAILED] Could not write {target_path}", file=sys.stderr)
-        except Exception as e:
-            print(f"[ERROR] {target_path}: {e}", file=sys.stderr)
+            write_atomic(target_path, entry_content)
+            print(f"[CREATED] {target_path}")
+        except Exception as error:
+            failures.append(str(target_path))
+            print(f"[FAILED] {target_path}: {error}", file=sys.stderr)
+    if failures: sys.exit(1)
 
 
 def main():
@@ -524,7 +553,13 @@ def main():
     args = parser.parse_args()
 
     cfg_file = Path(args.config) if args.config else None
-    cfg, cfg_path = load_config(cfg_file)
+    if args.command in ("fallback", "disable-autologin", "greeter"):
+        try:
+            cfg, cfg_path = load_config(cfg_file)
+        except SystemExit:
+            cfg, cfg_path = {}, cfg_file
+    else:
+        cfg, cfg_path = load_config(cfg_file)
 
     cmd_map = {
         "status": cmd_status,

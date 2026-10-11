@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""Install owned files with preimages; uninstall only unchanged recorded files."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import time
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--prefix', default=os.environ.get('PREFIX', '/usr/local'))
+    parser.add_argument('--user', action='store_true')
+    parser.add_argument('--theme', action='store_true')
+    parser.add_argument('--theme-only', action='store_true')
+    parser.add_argument('--uninstall', action='store_true')
+    parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--fingerprint', action='store_true')
+    args = parser.parse_args()
+    if args.fingerprint:
+        parser.error('Fingerprint setup is host-specific; configure fprintd separately. PAM and device rules are preserved.')
+    root = Path(__file__).resolve().parent.parent
+    prefix = Path.home()/'.local' if args.user else Path(args.prefix).expanduser()
+    if not prefix.is_absolute(): parser.error('prefix must be absolute')
+    theme = args.theme or args.theme_only
+    if theme and os.geteuid() != 0 and not args.dry_run:
+        # Run the privileged theme operation separately from user configuration.
+        command = ['sudo', str(root/'bin/multienv-install'), '--theme-only']
+        if args.uninstall: command.append('--uninstall')
+        subprocess.run(command, check=True)
+        if args.theme_only: return
+        theme = False
+    state = Path('/var/lib/arch-multienv/theme') if args.theme_only else prefix/'share/arch-multienv/install'
+    journal_file = state/'journal.json'
+    if args.uninstall:
+        if not journal_file.is_file():
+            print('No installation ownership journal; nothing removed.'); return
+        journal = json.loads(journal_file.read_text())
+        for entry in reversed(journal):
+            target = Path(entry['target'])
+            if target.is_symlink() or (target.exists() and (not target.is_file() or digest(target) != entry['installed_hash'])):
+                print('Preserved locally modified file:', target); continue
+            print('Would restore/remove:' if args.dry_run else 'Restore/remove:', target)
+            if args.dry_run: continue
+            previous = entry.get('previous')
+            if previous:
+                shutil.copy2(previous, target)
+            else: target.unlink(missing_ok=True)
+        print('Session entries, autologin settings, and user configuration are preserved.'); return
+    operations = []
+    if not args.theme_only:
+        operations += [(root/'bin'/name, prefix/'bin'/name, 0o755) for name in ('multienv', 'multienv-session', 'multienv-logout')]
+        config = Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home()/'.config')))/'multienv'
+        if not (config/'multienv.toml').exists():
+            operations.append((root/'config/multienv.toml.example', config/'multienv.toml', 0o644))
+        for source in (root/'examples').rglob('*'):
+            if source.is_file():
+                destination = config/'environments'/source.relative_to(root/'examples')
+                if not destination.exists(): operations.append((source, destination, source.stat().st_mode & 0o777))
+    if theme:
+        for source in (root/'sddm/themes/multienv-selector').rglob('*'):
+            if source.is_file(): operations.append((source, Path('/usr/share/sddm/themes/multienv-selector')/source.relative_to(root/'sddm/themes/multienv-selector'), 0o644))
+    if args.dry_run:
+        for _, target, _ in operations: print('Would install:', target)
+        return
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    previous_journal = json.loads(journal_file.read_text()) if journal_file.exists() else []
+    by_target = {entry['target']: entry for entry in previous_journal}
+    recovery = state/'recovery'/str(time.time_ns())
+    recovery.mkdir(parents=True, mode=0o700)
+    applied = []
+    try:
+        for number, (source, target, mode) in enumerate(operations):
+            if target.is_symlink() or any(parent.is_symlink() for parent in target.parents):
+                raise ValueError('Refusing a symlink installation target')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            old = recovery/str(number) if target.exists() else None
+            if old: shutil.copy2(target, old)
+            entry = dict(target=str(target), previous=str(old) if old else None, installed_hash=digest(source))
+            descriptor, temporary = tempfile.mkstemp(prefix='.multienv-', dir=target.parent)
+            try:
+                with os.fdopen(descriptor, 'wb') as stream:
+                    stream.write(source.read_bytes()); stream.flush(); os.fsync(stream.fileno())
+                os.chmod(temporary, mode); os.replace(temporary, target)
+            finally: Path(temporary).unlink(missing_ok=True)
+            applied.append(entry)
+            # Keep the pre-installation image across upgrades.
+            entry['previous'] = by_target.get(str(target), entry).get('previous')
+            by_target[str(target)] = entry
+        journal_file.write_text(json.dumps(list(by_target.values()), indent=2))
+    except Exception:
+        for entry in reversed(applied):
+            target = Path(entry['target'])
+            # Per-run preimages, including upgrades, are numbered in recovery.
+            old = recovery/str(applied.index(entry))
+            if old.exists(): shutil.copy2(old, target)
+            else: target.unlink(missing_ok=True)
+        raise
+    print('Installed with recovery copies:', recovery)
+    if theme: print('Theme installed. Activate it with a separate SDDM Theme drop-in after reviewing your host configuration.')
+
+if __name__ == '__main__':
+    main()

@@ -9,7 +9,7 @@ To guarantee host stability, AI agents interacting with an Arch Linux multi-envi
 2. **NEVER switch profiles or advise a user to log out without pre-flight validation**:
    Always verify the compositor configuration syntax before triggering a session switch.
 3. **NEVER hardcode machine-specific paths or usernames**:
-   Use `$HOME`, `$XDG_CONFIG_HOME`, or `~`. Never write `/home/someuser/` into reusable configurations or scripts.
+   Use `$HOME`, `$XDG_CONFIG_HOME`, or `~`. Never embed a particular user’s home directory in reusable configurations or scripts.
 4. **NEVER delete an environment without explicit confirmation**:
    Deleting an environment configuration is irreversible unless backed up.
 5. **NEVER assume external distributions or personal rices exist**:

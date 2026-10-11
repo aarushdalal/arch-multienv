@@ -19,7 +19,7 @@ The architecture separates the operating environment into two distinct layers:
 │                       Session Dispatch Layer (SDDM)                     │
 │  • Session Discovery: /usr/share/wayland-sessions/                      │
 │  • Dynamic Autologin: /etc/sddm.conf.d/autologin.conf                   │
-│  • Interactive Pill Selector / Greeter UI                               │
+│  • Full Session Selector / Greeter UI                               │
 └──────────────────┬───────────────────────────────────┬──────────────────┘
                    │                                   │
                    ▼                                   ▼

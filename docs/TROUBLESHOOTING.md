@@ -20,14 +20,14 @@
      journalctl -u sddm -b -e
      ```
   2. Verify that `multienv-session` is installed in PATH (`/usr/local/bin/multienv-session` or `/usr/bin/multienv-session`).
-  3. Ensure `trap 'exit 0' TERM HUP INT EXIT` is present in the session script.
+  3. Preserve the failed launch status and fix the reported compositor, configuration or session-entry error; do not hide failures with an EXIT trap.
 
 ### Freeze on logout / DRM seat retention
 - **Symptom**: Selecting logout causes the screen to freeze with the mouse cursor visible; SDDM never reappears.
 - **Cause**: Background process (e.g. video wallpaper, audio daemon, polkit authentication agent) holding open Wayland display or DRM seat locks.
 - **Fix**:
-  1. From TTY (`Ctrl + Alt + F3`): `loginctl terminate-user $USER`.
-  2. Ensure authentication agents (`hyprpolkitagent`, `polkit-gnome-authentication-agent-1`) and background renderers are included in `multienv-logout`'s termination sequence.
+  1. From a TTY, inspect the selected session and its UWSM unit. Terminating a session is a deliberate recovery action that can discard unsaved work.
+  2. Inspect session ownership and configured teardown hooks. The logout helper pauses for unsaved windows; it does not kill broadly matched background processes.
   3. Verify that `multienv-logout` was invoked rather than raw `hyprctl dispatch exit`.
 
 ### Blurred or incorrectly sized windows
@@ -123,3 +123,26 @@
      }
      ```
 
+---
+
+## 4. Biometrics & Fingerprint Authentication (`fprintd`)
+
+### Fingerprint sensor reports transfer errors or disconnects during verify
+- **Symptom**: Lock screen or greeter shows `FP ERROR` or log reports `USB error on device 06cb:00f0: No such device (it may have been disconnected) [-4]` or `transfer timed out`.
+- **Cause**: Linux kernel USB runtime autosuspend places the fingerprint reader in a low-power suspended state when idle.
+- **Fix**:
+  Ensure `/etc/udev/rules.d/99-fingerprint-autosuspend.rules` disables USB autosuspend:
+  ```udev
+  ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="06cb", ATTR{idProduct}=="00f0", TEST=="power/control", ATTR{power/control}="on"
+  ```
+  Reload rules with `sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=usb`.
+
+### Greeter or lock screen spams "Device was already claimed"
+- **Symptom**: `journalctl -u fprintd` shows rapid rejections: `Authorization denied ... Device was already claimed`.
+- **Cause**: An authentication client (e.g. Quickshell `PamContext`) retried too quickly after an error before `fprintd` finished asynchronous D-Bus cleanup of the previous device proxy.
+- **Fix**:
+  Enforce a minimum backoff of 2500ms on PAM error retries in `Pam.qml` and cap rapid re-tries to 3 attempts.
+
+### How to use fingerprint login on the multi-env SDDM logout screen
+- **Password Login**: Type your password and hit **Enter** for immediate authentication.
+- **Fingerprint Login**: Press **Enter** on an empty password field or click the **󰈷 Scan Fingerprint to Log In** badge. The greeter will display `Place finger on reader...`. Touch the fingerprint scanner with your enrolled finger to log into the selected environment.

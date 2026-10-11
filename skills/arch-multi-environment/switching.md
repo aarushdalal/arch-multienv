@@ -1,40 +1,25 @@
-# Session Switching & Lifecycle Mechanics
+# Switching and session lifecycle
 
-## 1. The Switching Lifecycle
+`multienv switch ID --dry-run --no-prompt` validates the chosen profile and
+shows the intended next-session configuration. A real switch uses a serialized
+atomic write with a timestamped preimage. `--now` explicitly requests logout.
 
-Switching between environments can occur via:
-1. **Interactive Display Manager (SDDM)**: Selecting the environment pill on the login screen.
-2. **Programmatic Switcher (`multienv switch`)**: Updating autologin state via CLI or keyboard shortcut.
+Logout requests closure of exact window addresses on the selected compositor,
+then waits up to eight seconds. Remaining windows keep the session alive and
+return exit code 2. Save or close them and retry. `--force` is an explicit
+override. There is no detached shutdown watchdog or broad process-name killing.
+An optional configured teardown hook runs after window closure. UWSM is stopped
+only when it owns the selected compositor; otherwise that compositor exits.
 
-```text
-User executes: multienv switch <target> [--now]
-       ↓
-Pre-Flight Validation Check:
-  - Target config exists and has valid syntax
-  - Target session .desktop exists in /usr/share/wayland-sessions/
-       ↓
-Updates /etc/sddm.conf.d/autologin.conf:
-  [Autologin]
-  User=$USER
-  Session=multienv-<target>.desktop
-       ↓
-Optional Teardown Trigger (multienv logout):
-  1. Executes environment-specific teardown.sh
-  2. Stops video wallpaper / layer shell daemons
-  3. Dispatches watchdog timeout (3s)
-  4. Gracefully signals client windows to close
-  5. Stops UWSM envelope or issues hyprctl exit
-       ↓
-SDDM reads autologin.conf and boots directly into target environment!
-```
+The launcher treats expanded paths as argument data, rejects missing or invalid
+profiles, and preserves compositor failure status. Autostart hooks run after a
+new matching Hyprland instance becomes ready. Do not mask failures with an
+EXIT trap. Inspect the SDDM journal and repair the failing launch instead.
 
----
+`multienv fallback` disables autologin with a recovery copy and restores manual
+greeter selection. It does not log out unless `--now` is supplied. Existing
+desktop sessions remain available.
 
-## 2. The Critical Signal Trap
-
-In `multienv-session`, the signal trap is essential:
-```bash
-trap 'exit 0' TERM HUP INT EXIT
-```
-**Why this is mandatory:**
-When Hyprland exits or is terminated during logout, standard processes may emit a non-zero status code. When `sddm-helper` sees a non-zero exit code, it may mark the session as a failure and immediately try to restart or drop into a crash loop. Trapping signals ensures `sddm-helper` receives clean return code 0, returning gracefully to the greeter or executing autologin.
+Full authentication, hardware seat release and profile switching must be
+verified interactively on each target host. Automated stubs cannot prove those
+host-specific behaviors.

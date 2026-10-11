@@ -1,97 +1,95 @@
-#!/usr/bin/env bash
-# ==============================================================================
-# arch-multienv: Graceful Teardown & Seat Release Engine
-# ==============================================================================
-# Ensures graphical daemons, layer shells, and application windows close cleanly
-# before the compositor exits, releasing the Wayland seat for the next profile.
-# ==============================================================================
-
-set -uo pipefail
-
-ENV_ID="${MULTIENV_ACTIVE_ENV:-}"
-CONFIG_PATH="${MULTIENV_CONFIG:-}"
-
-echo "Initiating graceful multi-environment session teardown..."
-
-# 1. Run environment-specific teardown hook if defined
-if [[ -n "$ENV_ID" ]]; then
-    TEARDOWN_HOOK="$(python3 -c "
+#!/usr/bin/env python3
+"""Ask applications to close; leave save dialogs and the session alive by default."""
+import argparse
+import json
 import os
-try:
-    import tomllib
-except ImportError:
-    import tomli as tomllib
 from pathlib import Path
+import subprocess
+import sys
+import time
+import tomllib
 
-cand = '${CONFIG_PATH}'
-if not cand or not os.path.isfile(cand):
-    for c in [
-        os.path.expanduser('~/.config/multienv/multienv.toml'),
-        '/etc/multienv/multienv.toml',
-    ]:
-        if os.path.isfile(c):
-            cand = c
-            break
+def run(command, **kwargs):
+    return subprocess.run(command, timeout=10, **kwargs)
 
-try:
-    with open(cand, 'rb') as f:
-        data = tomllib.load(f)
-    print(data.get('environments', {}).get('${ENV_ID}', {}).get('teardown', ''))
-except Exception:
-    print('')
-" 2>/dev/null || true)"
+def clients():
+    result = run(['hyprctl', 'clients', '-j'], capture_output=True, text=True, check=True)
+    data = json.loads(result.stdout)
+    if not isinstance(data, list): raise ValueError('Invalid compositor window response')
+    return data
 
-    if [[ -n "$TEARDOWN_HOOK" ]]; then
-        eval "TEARDOWN_HOOK=\"$TEARDOWN_HOOK\""
-        if [[ -x "$TEARDOWN_HOOK" ]]; then
-            echo "Executing teardown hook: $TEARDOWN_HOOK"
-            "$TEARDOWN_HOOK" || true
-        fi
-    fi
-fi
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--greeter', action='store_true', help='Require manual greeter selection before logging out')
+    parser.add_argument('--force', action='store_true', help='Explicitly exit even with remaining windows')
+    parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--timeout', type=float, default=8)
+    args = parser.parse_args()
+    if not 0 <= args.timeout <= 120: parser.error('timeout must be between 0 and 120 seconds')
+    if args.greeter:
+        candidates = [Path(os.environ['MULTIENV_CONFIG'])] if os.environ.get('MULTIENV_CONFIG') else [Path(os.environ.get('XDG_CONFIG_HOME', Path.home()/'.config'))/'multienv/multienv.toml', Path('/etc/multienv/multienv.toml')]
+        cfg_file = next((path for path in candidates if path.is_file()), None)
+        cfg = tomllib.loads(cfg_file.read_text()) if cfg_file else {}
+        autologin = Path(os.path.expanduser(os.path.expandvars(cfg.get('general', {}).get('sddm_autologin_path', '/etc/sddm.conf.d/autologin.conf'))))
+        if autologin.is_file():
+            message = 'Desktop switching needs the manual greeter. Run multienv fallback first; login policy was not changed.'
+            print(message, file=sys.stderr)
+            if not args.dry_run:
+                try: run(['notify-send', 'Desktop switch paused', message], capture_output=True)
+                except FileNotFoundError: pass
+            return 3
+    if args.dry_run:
+        print('Would request window closure, wait for save dialogs, then end the current session.'); return 0
+    if not os.environ.get('HYPRLAND_INSTANCE_SIGNATURE'):
+        print('No selected compositor instance; logout cancelled.', file=sys.stderr); return 1
+    # Serialize duplicate UI requests without a detached shutdown watchdog.
+    import fcntl
+    runtime = Path(os.environ.get('XDG_RUNTIME_DIR', '/tmp'))
+    lock_path = runtime / ('multienv-logout-' + str(os.getuid()) + '.lock')
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'w') as lock:
+        try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError: return 0
+        for client in clients():
+            address = client.get('address', '')
+            if isinstance(address, str) and address.startswith('0x'):
+                run(['hyprctl', 'dispatch', 'closewindow', 'address:' + address], capture_output=True, check=True)
+        deadline = time.monotonic() + args.timeout
+        remaining = clients()
+        while remaining and time.monotonic() < deadline:
+            time.sleep(0.2); remaining = clients()
+        if remaining and not args.force:
+            message = 'Logout paused: save or close remaining windows, then try again.'
+            print(message, file=sys.stderr)
+            try: run(['notify-send', 'Logout paused', message], capture_output=True)
+            except FileNotFoundError: pass
+            return 2
+        env_id = os.environ.get('MULTIENV_ACTIVE_ENV', '')
+        config = os.environ.get('MULTIENV_CONFIG', '')
+        if env_id:
+            candidates = [Path(config)] if config else [Path(os.environ.get('XDG_CONFIG_HOME', Path.home()/'.config'))/'multienv/multienv.toml', Path('/etc/multienv/multienv.toml')]
+            cfg = next((p for p in candidates if p.is_file()), None)
+            if cfg:
+                data = tomllib.loads(cfg.read_text())
+                hook = data.get('environments', {}).get(env_id, {}).get('teardown', '')
+                if hook:
+                    expanded = os.path.expanduser(os.path.expandvars(hook))
+                    run([expanded], check=True)
+        # UWSM owns services in its envelope. Never kill unrelated processes.
+        import shutil
+        owned_uwsm = False
+        if shutil.which('uwsm'):
+            envelope = run(['systemctl', '--user', 'show', '--property=MainPID', '--value', 'wayland-wm@*.service'], capture_output=True, text=True)
+            active_pids = set(envelope.stdout.split()) if envelope.returncode == 0 else set()
+            instance_list = run(['hyprctl', 'instances', '-j'], capture_output=True, text=True, check=True)
+            owned_uwsm = any(str(item.get('pid')) in active_pids and item.get('instance') == os.environ['HYPRLAND_INSTANCE_SIGNATURE'] for item in json.loads(instance_list.stdout))
+        if owned_uwsm:
+            run(['uwsm', 'stop'], check=True)
+        else:
+            run(['hyprctl', 'dispatch', 'exit'], check=True)
+        return 0
 
-# 2. Stop known background graphical workers that could hold the Wayland seat open
-# Common examples: video wallpaper daemons, standalone layer shells, polkit agents
-for daemon in mpvpaper swww-daemon hyprpaper; do
-    if pgrep -x "$daemon" >/dev/null 2>&1; then
-        echo "Terminating $daemon..."
-        pkill -x "$daemon" 2>/dev/null || true
-    fi
-done
-pkill -f 'polkit-agent' 2>/dev/null || true
-
-# 3. Schedule non-blocking background watchdog to guarantee compositor termination
-echo "Scheduling compositor shutdown watchdog (3s timeout)..."
-nohup bash -c "sleep 3 && (command -v uwsm >/dev/null && uwsm stop 2>/dev/null || command -v hyprctl >/dev/null && hyprctl dispatch exit 2>/dev/null || true)" >/dev/null 2>&1 &
-
-# 4. Gracefully close active client windows if hyprctl is available
-if command -v hyprctl >/dev/null 2>&1; then
-    echo "Broadcasting close request to active client windows..."
-    # Retrieve addresses of open client windows and dispatch close requests
-    hyprctl clients -j 2>/dev/null | python3 -c "
-import sys, json, subprocess
-try:
-    clients = json.load(sys.stdin)
-    for c in clients:
-        addr = c.get('address')
-        if addr:
-            subprocess.run(['hyprctl', 'dispatch', 'closewindow', f'address:{addr}'],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-except Exception:
-    pass
-" 2>/dev/null || true
-fi
-
-# 5. Allow applications 1 second to flush data to disk
-sleep 1
-
-# 6. Stop compositor via UWSM if running, or via hyprctl
-if command -v uwsm >/dev/null 2>&1 && [[ -n "${UWSM_ID:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
-    echo "Stopping UWSM session envelope..."
-    uwsm stop 2>/dev/null || true
-elif command -v hyprctl >/dev/null 2>&1; then
-    echo "Requesting Hyprland compositor exit..."
-    hyprctl dispatch exit 2>/dev/null || true
-fi
-
-echo "Teardown sequence complete."
+if __name__ == '__main__':
+    try: sys.exit(main())
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print('Logout cancelled: ' + str(error), file=sys.stderr); sys.exit(1)
