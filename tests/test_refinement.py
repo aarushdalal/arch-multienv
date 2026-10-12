@@ -11,6 +11,24 @@ def load(name,path):
  module=importlib.util.module_from_spec(spec);loader.exec_module(module);return module
 
 class RefinementTests(unittest.TestCase):
+ def test_lua_dispatch_and_strict_address(self):
+  module=load('lua_logout_fixture',ROOT/'bin/multienv-logout')
+  with patch.object(module,'run',return_value=subprocess.CompletedProcess([],0,'function\n','')):
+   self.assertTrue(module.lua_dispatch_available())
+  self.assertEqual(module.close_command('0x123',True),['hyprctl','dispatch','hl.dsp.window.close({ window = "address:0x123" })'])
+  self.assertEqual(module.close_command('0x123',False),['hyprctl','dispatch','closewindow','address:0x123'])
+  for value in ['0x123.*','0x123")','.*','']:
+   with self.assertRaises(ValueError):module.close_command(value,True)
+
+ def test_lua_logout_closes_then_exits_without_uwsm(self):
+  module=load('lua_logout_flow',ROOT/'bin/multienv-logout')
+  def response(command,**kwargs):
+   return subprocess.CompletedProcess(command,0,'function\n' if command[1]=='repl' else 'ok','')
+  with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ,{'HYPRLAND_INSTANCE_SIGNATURE':'fixture','XDG_RUNTIME_DIR':folder,'MULTIENV_ACTIVE_ENV':''}), patch('sys.argv',['multienv-logout']), patch.object(module,'clients',side_effect=[[{'address':'0x123'}],[]]), patch.object(module,'run',side_effect=response) as calls, patch('shutil.which',return_value=None):
+   self.assertEqual(module.main(),0)
+   self.assertIn(module.close_command('0x123',True),[c.args[0] for c in calls.call_args_list])
+   self.assertIn(['hyprctl','dispatch','hl.dsp.exit()'],[c.args[0] for c in calls.call_args_list])
+
  def test_logout_uses_selected_launcher_envelope(self):
   module=load('logout_envelope_fixture',ROOT/'bin/multienv-logout')
   def response(command,**kwargs):

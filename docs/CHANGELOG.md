@@ -2,6 +2,12 @@
 
 All notable changes to `arch-multienv` will be documented in this file.
 
+## [1.3.2] - 2026-10-12
+
+- Match the actual Lua/legacy compositor command API during window closure and standalone exit.
+- Validate exact hexadecimal addresses and tolerate windows that disappear during closure.
+- Exercise the real compositor with an owned disposable window; intercept final logout in the integration check.
+
 ## [1.3.1] - 2026-10-11
 
 - Recognize the selected UWSM launcher ancestor and report duplicate logout requests as busy.

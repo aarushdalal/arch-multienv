@@ -2,6 +2,7 @@
 """Ask applications to close; leave save dialogs and the session alive by default."""
 import argparse
 import json
+import re
 import os
 from pathlib import Path
 import subprocess
@@ -17,6 +18,15 @@ def clients():
     data = json.loads(result.stdout)
     if not isinstance(data, list): raise ValueError('Invalid compositor window response')
     return data
+
+def lua_dispatch_available():
+    result = run(['hyprctl', 'repl', 'type(hl.dsp.window.close)'], capture_output=True, text=True)
+    return result.returncode == 0 and result.stdout.strip() == 'function'
+
+def close_command(address, lua):
+    if not isinstance(address, str) or not re.fullmatch(r'0x[0-9a-fA-F]+', address):
+        raise ValueError('Invalid window address; refusing a broad close request')
+    return ['hyprctl', 'dispatch', 'hl.dsp.window.close({ window = ' + json.dumps('address:' + address) + ' })'] if lua else ['hyprctl', 'dispatch', 'closewindow', 'address:' + address]
 
 def ancestor_pids(pid):
     """UWSM's main process can be the launcher parent of Hyprland."""
@@ -65,10 +75,15 @@ def main():
         try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             print("A logout request is already running.", file=sys.stderr); return 4
+        lua = lua_dispatch_available()
         for client in clients():
             address = client.get('address', '')
-            if isinstance(address, str) and address.startswith('0x'):
-                run(['hyprctl', 'dispatch', 'closewindow', 'address:' + address], capture_output=True, check=True)
+            command = close_command(address, lua)
+            result = run(command, capture_output=True, text=True)
+            if result.returncode:
+                # A window may disappear between enumeration and its close request.
+                if any(item.get('address') == address for item in clients()):
+                    raise ValueError('Window close failed: ' + (result.stderr or result.stdout).strip())
         deadline = time.monotonic() + args.timeout
         remaining = clients()
         while remaining and time.monotonic() < deadline:
@@ -101,7 +116,7 @@ def main():
         if owned_uwsm:
             run(['uwsm', 'stop'], check=True)
         else:
-            run(['hyprctl', 'dispatch', 'exit'], check=True)
+            run(['hyprctl', 'dispatch', 'hl.dsp.exit()'] if lua else ['hyprctl', 'dispatch', 'exit'], check=True)
         return 0
 
 if __name__ == '__main__':

@@ -1,5 +1,5 @@
-# arch-multienv 1.3.1
+# arch-multienv 1.3.2
 
-Fix the login screen falling back to SDDM's default theme. The theme now declares `QtVersion=6`, ensuring SDDM launches its Qt 6 greeter for the existing Qt 6 QML. Logout also recognizes the selected compositor’s UWSM launcher ancestor so it stops the owning session envelope correctly; duplicate logout requests report busy instead of false success.
+Fix logout and desktop-switch failure on Hyprland Lua sessions. Detect the actual Lua dispatch API and use `hl.dsp.window.close({ window = ... })`; retain legacy commands for older compositors. Standalone exit uses the matching API, while owned UWSM sessions keep their normal teardown. Strict hexadecimal address validation preserves exact targeting, and a window disappearing during closure no longer cancels logout.
 
-Validation: metadata regression, seven backend regressions, native greeter fixtures, and the actual `sddm-greeter-qt6 --test-mode` theme load. No display-manager restart or active-session termination was performed. Existing public history is preserved and new commits/tags use GitHub noreply metadata.
+Validated against the installed compositor’s real parser and an agent-owned disposable test window, with final session termination intercepted. Backend regressions cover Lua commands and legacy behavior. Both panels use the corrected shared helper; no user window or actual session was terminated by validation. Current payload privacy scan passed; existing public history is preserved.
