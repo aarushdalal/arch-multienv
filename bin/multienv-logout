@@ -18,6 +18,20 @@ def clients():
     if not isinstance(data, list): raise ValueError('Invalid compositor window response')
     return data
 
+def ancestor_pids(pid):
+    """UWSM's main process can be the launcher parent of Hyprland."""
+    found = set()
+    for _ in range(16):
+        if pid <= 1 or str(pid) in found: break
+        proc = Path('/proc') / str(pid)
+        try:
+            if proc.stat().st_uid != os.getuid(): break
+            found.add(str(pid))
+            fields = (proc / 'stat').read_text().rsplit(')', 1)[1].split()
+            pid = int(fields[1])
+        except (OSError, ValueError, IndexError): break
+    return found
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--greeter', action='store_true', help='Require manual greeter selection before logging out')
@@ -49,7 +63,8 @@ def main():
     fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'w') as lock:
         try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError: return 0
+        except BlockingIOError:
+            print("A logout request is already running.", file=sys.stderr); return 4
         for client in clients():
             address = client.get('address', '')
             if isinstance(address, str) and address.startswith('0x'):
@@ -82,7 +97,7 @@ def main():
             envelope = run(['systemctl', '--user', 'show', '--property=MainPID', '--value', 'wayland-wm@*.service'], capture_output=True, text=True)
             active_pids = set(envelope.stdout.split()) if envelope.returncode == 0 else set()
             instance_list = run(['hyprctl', 'instances', '-j'], capture_output=True, text=True, check=True)
-            owned_uwsm = any(str(item.get('pid')) in active_pids and item.get('instance') == os.environ['HYPRLAND_INSTANCE_SIGNATURE'] for item in json.loads(instance_list.stdout))
+            owned_uwsm = any(item.get('instance') == os.environ['HYPRLAND_INSTANCE_SIGNATURE'] and bool(ancestor_pids(int(item.get('pid', 0))) & active_pids) for item in json.loads(instance_list.stdout))
         if owned_uwsm:
             run(['uwsm', 'stop'], check=True)
         else:

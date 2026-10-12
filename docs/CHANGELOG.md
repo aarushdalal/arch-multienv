@@ -4,6 +4,7 @@ All notable changes to `arch-multienv` will be documented in this file.
 
 ## [1.3.1] - 2026-10-11
 
+- Recognize the selected UWSM launcher ancestor and report duplicate logout requests as busy.
 - Declare QtVersion=6 so SDDM selects the matching greeter instead of rejecting the QML and displaying its embedded default theme.
 - Add a regression check for the metadata and verify loading with the actual Qt 6 SDDM greeter in test mode.
 

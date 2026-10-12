@@ -11,6 +11,18 @@ def load(name,path):
  module=importlib.util.module_from_spec(spec);loader.exec_module(module);return module
 
 class RefinementTests(unittest.TestCase):
+ def test_logout_uses_selected_launcher_envelope(self):
+  module=load('logout_envelope_fixture',ROOT/'bin/multienv-logout')
+  def response(command,**kwargs):
+   if command==['hyprctl','clients','-j']: return subprocess.CompletedProcess(command,0,'[]','')
+   if command[0]=='systemctl': return subprocess.CompletedProcess(command,0,'123\n','')
+   if command==['hyprctl','instances','-j']: return subprocess.CompletedProcess(command,0,json.dumps([{'pid':456,'instance':'fixture'}]),'')
+   return subprocess.CompletedProcess(command,0,'','')
+  with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ,{'HYPRLAND_INSTANCE_SIGNATURE':'fixture','XDG_RUNTIME_DIR':folder,'MULTIENV_ACTIVE_ENV':''}), patch('sys.argv',['multienv-logout']), patch.object(module,'run',side_effect=response) as calls, patch.object(module,'ancestor_pids',return_value={'456','123'}), patch('shutil.which',return_value='/usr/bin/uwsm'):
+   self.assertEqual(module.main(),0)
+   self.assertIn(['uwsm','stop'],[c.args[0] for c in calls.call_args_list])
+   self.assertNotIn(['hyprctl','dispatch','exit'],[c.args[0] for c in calls.call_args_list])
+
  def test_theme_selects_qt6_greeter(self):
   metadata=configparser.ConfigParser()
   metadata.read(ROOT/'sddm/themes/multienv-selector/metadata.desktop')
@@ -23,7 +35,7 @@ class RefinementTests(unittest.TestCase):
    root=Path(folder);config=root/'config/multienv';config.mkdir(parents=True)
    autologin=root/'autologin.conf';autologin.write_text('[Autologin]\nUser=sample\nSession=sample.desktop\n')
    (config/'multienv.toml').write_text('[general]\nsddm_autologin_path='+json.dumps(str(autologin))+'\n')
-   env=dict(os.environ,HOME=folder,XDG_CONFIG_HOME=str(root/'config'))
+   env=dict(os.environ,HOME=folder,XDG_CONFIG_HOME=str(root/'config'),MULTIENV_CONFIG=str(config/'multienv.toml'))
    result=subprocess.run([ROOT/'bin/multienv-logout','--greeter','--dry-run'],env=env,capture_output=True)
    self.assertEqual(result.returncode,3)
    self.assertIn('User=sample',autologin.read_text())
