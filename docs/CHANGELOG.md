@@ -2,6 +2,14 @@
 
 All notable changes to `arch-multienv` will be documented in this file.
 
+## [1.4.0] - 2026-11-21
+
+- **Double-Layer Frosted Monolith Architecture**: Upgraded the SDDM greeter UI with a fully transparent frosted glass monolith deck, elevated by a secondary masked Gaussian blur (`blurMax: 56; blurMultiplier: 2.2; brightness: 0.14`) over an atmospheric blurred wallpaper.
+- **Transparent Frosted Sign-In Action**: Replaced solid white button fill with transparent frosted glass, specular rim highlight, and high-contrast typography.
+- **100% Automated Wallpaper Synchronization**: Integrated live wallpaper caching via `/var/cache/multienv/background.png` for instantaneous, unprivileged greeter wallpaper updates on every desktop wallpaper change.
+- **Universal Keyboard & Biometric Navigation**: Fully validated Tab cycling, Ctrl+Tab action focus, Escape password clear, and Enter-to-scan biometric triggers.
+- **Clean-Room Privacy & Compliance**: Fully audited and verified clean of personal host identifiers and secrets.
+
 ## [1.3.2] - 2026-10-12
 
 - Match the actual Lua/legacy compositor command API during window closure and standalone exit.
