@@ -2,6 +2,14 @@
 
 All notable changes to `arch-multienv` will be documented in this file.
 
+## [1.4.2] - 2026-11-21
+
+- **Pure Transparent Frosted Glass Password Field**: Redesigned password input and submit action into a unified translucent frosted glass capsule (`color: Qt.rgba(0, 0, 0, 0.28)`) with subtle specular outline and integrated forward button (100% transparent dark glass, no opaque white fills or thick white borders).
+- **Ultra-Smooth Gaussian Wallpaper Blur**: Elevated background wallpaper blur to `blurMax: 64; blurMultiplier: 2.5` for a silky, creamy ambient backdrop behind the monolith card.
+- **Pure SVG Vector Icon Suite**: Eliminated all Unicode font glyphs and emojis across SDDM greeter and desktop notifications in favor of razor-sharp, crisp SVG vector assets (`lock.svg`, `arrow-right.svg`, `user.svg`, `fingerprint.svg`, `restart.svg`, `power.svg`, `omarchy-sync.svg`).
+- **Fluid Motion & Error Physics**: Integrated smooth sliding capsule transition for environment switching (`Easing.OutQuint`), biometric scan breathing pulsation, and visceral horizontal shake physics on authentication failure.
+- **Zero-Drift Live Theme Synchronization**: Synchronized theme assets directly to both SDDM greeter engines and automated live cache.
+
 ## [1.4.1] - 2026-11-21
 
 - **Real-Time Desktop Sync Notifications**: Integrated transient desktop notifications (`notify-send`) on wallpaper transitions displaying immediate sync start and in-place completion feedback without terminal interruption.

@@ -16,16 +16,16 @@ Item {
     readonly property color pressedAccent: "#0284c7"
     readonly property color actionInk: "#060b13"
 
-    readonly property color fieldBg: Qt.rgba(0.04, 0.06, 0.10, 0.72)
-    readonly property color fieldBorder: Qt.rgba(1, 1, 1, 0.14)
-    readonly property color fieldBorderActive: accent
+    readonly property color fieldBg: Qt.rgba(0, 0, 0, 0.28)
+    readonly property color fieldBorder: Qt.rgba(1, 1, 1, 0.10)
+    readonly property color fieldBorderActive: Qt.rgba(56/255, 189/255, 248/255, 0.65)
 
-    readonly property color sessionActiveBg: Qt.rgba(0.12, 0.18, 0.28, 0.90)
-    readonly property color sessionInactiveBg: Qt.rgba(0.04, 0.06, 0.10, 0.55)
+    readonly property color sessionActiveBg: Qt.rgba(56/255, 189/255, 248/255, 0.18)
+    readonly property color sessionInactiveBg: Qt.rgba(0, 0, 0, 0.25)
 
-    readonly property color buttonBg: Qt.rgba(0.06, 0.08, 0.13, 0.70)
-    readonly property color buttonHoverBg: Qt.rgba(0.12, 0.16, 0.25, 0.85)
-    readonly property color buttonBorder: Qt.rgba(1, 1, 1, 0.12)
+    readonly property color buttonBg: Qt.rgba(0, 0, 0, 0.30)
+    readonly property color buttonHoverBg: Qt.rgba(1, 1, 1, 0.10)
+    readonly property color buttonBorder: Qt.rgba(1, 1, 1, 0.10)
 
     readonly property color errorColor: "#f87171"
     readonly property color errorBg: Qt.rgba(0.25, 0.06, 0.08, 0.88)
@@ -123,9 +123,9 @@ Item {
         source: bgImage
         autoPaddingEnabled: false
         blurEnabled: bgImage.status === Image.Ready
-        blur: 1
-        blurMax: 16
-        blurMultiplier: 1.2
+        blur: 1.0
+        blurMax: 64
+        blurMultiplier: 2.5
         opacity: bgImage.status === Image.Ready ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 300 } }
     }
@@ -308,10 +308,9 @@ Item {
                 anchors.fill: parent
                 radius: 28
                 gradient: Gradient {
-                    GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.14) }
-                    GradientStop { position: 0.25; color: Qt.rgba(1, 1, 1, 0.05) }
-                    GradientStop { position: 0.75; color: Qt.rgba(0, 0, 0, 0.10) }
-                    GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.32) }
+                    GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.08) }
+                    GradientStop { position: 0.3; color: Qt.rgba(0, 0, 0, 0.18) }
+                    GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.45) }
                 }
             }
 
@@ -320,7 +319,7 @@ Item {
                 anchors.fill: parent
                 radius: 28
                 color: "transparent"
-                border.color: Qt.rgba(1, 1, 1, 0.28)
+                border.color: Qt.rgba(1, 1, 1, 0.14)
                 border.width: 1.5
 
                 // Top rim high-luminance specular line
@@ -329,7 +328,7 @@ Item {
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: parent.width - 48
                     height: 1
-                    color: Qt.rgba(1, 1, 1, 0.45)
+                    color: Qt.rgba(1, 1, 1, 0.22)
                 }
             }
         }
@@ -379,9 +378,9 @@ Item {
                 Rectangle {
                     width: 52; height: 52; radius: 26
                     anchors.horizontalCenter: parent.horizontalCenter
-                    color: Qt.rgba(0.08, 0.12, 0.18, 0.75)
-                    border.color: Qt.rgba(1, 1, 1, 0.22)
-                    border.width: 1.5
+                    color: Qt.rgba(0, 0, 0, 0.35)
+                    border.color: Qt.rgba(1, 1, 1, 0.12)
+                    border.width: 1
 
                     // Breathing focus halo
                     Rectangle {
@@ -535,7 +534,7 @@ Item {
                 height: 48
                 radius: 14
                 color: root.fieldBg
-                border.width: password.activeFocus ? 2 : 1
+                border.width: password.activeFocus ? 1.5 : 1
                 border.color: root.failed ? root.errorColor : password.activeFocus ? root.fieldBorderActive : root.fieldBorder
                 Behavior on border.color { ColorAnimation { duration: 140 } }
 
@@ -612,9 +611,9 @@ Item {
 
                         background: Rectangle {
                             radius: 10
-                            color: unlock.down ? Qt.rgba(1, 1, 1, 0.22) : (password.length > 0 || unlock.activeFocus || unlock.hovered ? Qt.rgba(56/255, 189/255, 248/255, 0.30) : Qt.rgba(1, 1, 1, 0.08))
-                            border.color: unlock.activeFocus ? "#ffffff" : (password.length > 0 ? root.accent : Qt.rgba(1, 1, 1, 0.16))
-                            border.width: unlock.activeFocus ? 2 : 1
+                            color: unlock.down ? Qt.rgba(56/255, 189/255, 248/255, 0.25) : (password.length > 0 || unlock.activeFocus || unlock.hovered ? Qt.rgba(56/255, 189/255, 248/255, 0.20) : Qt.rgba(0, 0, 0, 0.25))
+                            border.color: unlock.activeFocus ? root.accent : (password.length > 0 ? Qt.rgba(56/255, 189/255, 248/255, 0.40) : Qt.rgba(1, 1, 1, 0.08))
+                            border.width: 1
                             Behavior on color { ColorAnimation { duration: 120 } }
                             Behavior on border.color { ColorAnimation { duration: 120 } }
                         }
@@ -625,7 +624,7 @@ Item {
                             source: "icons/arrow-right.svg"
                             fillMode: Image.PreserveAspectFit
                             sourceSize: Qt.size(16, 16)
-                            opacity: (password.length > 0 || unlock.hovered || unlock.activeFocus) ? 1.0 : 0.4
+                            opacity: (password.length > 0 || unlock.hovered || unlock.activeFocus) ? 0.95 : 0.45
                             Behavior on opacity { NumberAnimation { duration: 120 } }
                         }
                     }
