@@ -185,9 +185,15 @@ We acknowledge the upstream open-source communities behind Hyprland, UWSM, SDDM,
 This project is licensed under the [MIT License](LICENSE).
 
 
-## Refined selector preview
+## Visual Showcase
 
-![Sample greeter](assets/showcase/greeter-preview.png)
+### Multi-Environment SDDM Greeter (Double-Layer Frosted Monolith)
+
+![Multi-Environment SDDM Greeter](assets/showcase/greeter-preview.png)
+
+### Early-Boot Encrypted Storage Unlock (Plymouth LUKS)
+
+![Encrypted Disk Unlock Screen](assets/showcase/boot-unlock-preview.png)
 
 Native Qt component render with sample account/session data and inert
 authentication and power callbacks. See tests/qml/GreeterPreview.qml.

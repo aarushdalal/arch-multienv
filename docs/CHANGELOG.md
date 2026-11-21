@@ -2,6 +2,12 @@
 
 All notable changes to `arch-multienv` will be documented in this file.
 
+## [1.4.1] - 2026-11-21
+
+- **Real-Time Desktop Sync Notifications**: Integrated transient desktop notifications (`notify-send`) on wallpaper transitions displaying immediate sync start and in-place completion feedback without terminal interruption.
+- **Dual-Screen Visual Showcase**: Added comprehensive 1080p visual previews for both the Multi-Environment SDDM Selector and the early-boot Encrypted Disk (LUKS) unlock screen.
+- **Non-Interactive Limine Build Workflow**: Hardened Plymouth initramfs rebuild to invoke `limine-mkinitcpio` directly, eliminating interactive terminal prompt blocks.
+
 ## [1.4.0] - 2026-11-21
 
 - **Double-Layer Frosted Monolith Architecture**: Upgraded the SDDM greeter UI with a fully transparent frosted glass monolith deck, elevated by a secondary masked Gaussian blur (`blurMax: 56; blurMultiplier: 2.2; brightness: 0.14`) over an atmospheric blurred wallpaper.
