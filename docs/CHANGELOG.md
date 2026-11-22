@@ -2,6 +2,18 @@
 
 All notable changes to `arch-multienv` will be documented in this file.
 
+## [1.4.4] - 2026-11-22
+
+- **Dynamic `colors.toml` Wallpaper Palette Synchronization**:
+  - Automatically synchronizes theme color tokens from the active wallpaper's `colors.toml` (`~/.local/state/omarchy/current/theme/colors.toml`) into `ThemeColors.js` and system cache.
+  - Dynamically drives greeter accents, typography, translucent card acrylic gradients, button active states, and focus rings directly from the wallpaper palette.
+- **Rich Creamy Bokeh Wallpaper Blur**:
+  - Pre-computed 20px Gaussian bokeh cache (`background_blurred.png`) combined with QML GPU atmospheric blur for an unmistakable frosted depth behind the monolith card.
+  - Fail-safe fallback engine ensuring buttery smooth frosted depth across all resolutions and hardware.
+- **Complete Elimination of White Glow & Specular Bleeding**:
+  - Removed `#ffffff` layer masks and specular line highlights.
+  - Replaced all card and button borders with subtle theme-tinted translucency.
+
 ## [1.4.3] - 2026-11-22
 
 - **Hardened Wallpaper Synchronization Hook**: Fixed argument resolution in `25-sddm-wallpaper-sync.sh` to correctly detect and fall back to the active desktop wallpaper symlink (`$HOME/.local/state/omarchy/current/background`) when invoked by `omarchy-hook theme-set <theme_name>`.
