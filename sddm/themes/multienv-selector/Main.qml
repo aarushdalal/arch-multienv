@@ -71,7 +71,7 @@ Item {
     SecurePanel {
         id: panel; anchors.fill: parent
         backgroundPath: "/var/cache/multienv/background.png"
-        userName: root.currentUser; editUser: true
+        userName: root.currentUser; editUser: !root.currentUser || root.currentUser.length === 0
         brand: "MULTIENV"; actionText: "Sign in"
         busy: root.pending; fingerprintBusy: root.biometricPending
         failed: root.loginFailed; message: root.message

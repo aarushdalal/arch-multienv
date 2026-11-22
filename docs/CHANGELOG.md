@@ -2,6 +2,13 @@
 
 All notable changes to `arch-multienv` will be documented in this file.
 
+## [1.4.3] - 2026-11-22
+
+- **Hardened Wallpaper Synchronization Hook**: Fixed argument resolution in `25-sddm-wallpaper-sync.sh` to correctly detect and fall back to the active desktop wallpaper symlink (`$HOME/.local/state/omarchy/current/background`) when invoked by `omarchy-hook theme-set <theme_name>`.
+- **Zero-Flicker Synchronous Image Ingestion**: Configured `asynchronous: false` on background and internal frosted glass image layers in `SecurePanel.qml` to prevent blank rendering during initial greeter layout.
+- **De-cluttered Layout for Known Users**: Dynamically hid the secondary username input field when `currentUser` is already known, maximizing vertical space and visual elegance on 720p/1080p displays.
+- **Unified Frosted Monolith for Boot Unlock**: Directly integrated the 100% transparent frosted glass password capsule into Plymouth's `card.png` and disabled legacy opaque entry rendering.
+
 ## [1.4.2] - 2026-11-21
 
 - **Pure Transparent Frosted Glass Password Field**: Redesigned password input and submit action into a unified translucent frosted glass capsule (`color: Qt.rgba(0, 0, 0, 0.28)`) with subtle specular outline and integrated forward button (100% transparent dark glass, no opaque white fills or thick white borders).
