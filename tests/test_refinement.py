@@ -104,4 +104,27 @@ class RefinementTests(unittest.TestCase):
    issues=module.validate_environment('fixture',{'config_path':str(config),'session_desktop':'missing.desktop'}, {'general':{'wayland_sessions_dir':folder}})
    self.assertTrue(issues)
 
+ def test_installer_customization_flags_and_plymouth_renderer(self):
+  installer=load('multienv_install_files',ROOT/'bin/multienv-install-files')
+  with tempfile.TemporaryDirectory() as folder:
+   root=Path(folder);logo=root/'custom.svg'
+   logo.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="{ACCENT}"/></svg>')
+   ns=type('Args',(),dict(brand='STUDIO',brand_tagline='CUSTOM WORKSTATION',brand_logo=str(logo),brand_logo_path='',brand_logo_colorize=True,motion_preset='zenith',motion_intensity='expressive',reduced_motion=True,session_aliases='Hyprland=Desktop'))()
+   conf=installer.render_theme_conf((ROOT/'sddm/themes/multienv-selector/theme.conf').read_text(),ns).decode()
+   self.assertIn('Brand=STUDIO',conf)
+   self.assertIn('BrandTagline=CUSTOM WORKSTATION',conf)
+   self.assertIn('BrandLogo=icons/brand-logo.svg',conf)
+   self.assertIn('BrandLogoColorize=true',conf)
+   self.assertIn('MotionPreset=zenith',conf)
+   self.assertIn('ReducedMotion=true',conf)
+   dry=subprocess.run([ROOT/'bin/multienv-install','--user','--theme','--plymouth','--activate-theme','--brand','STUDIO','--brand-logo',str(logo),'--dry-run'],env=dict(os.environ,HOME=folder),capture_output=True,text=True,check=True)
+   self.assertIn('/usr/share/sddm/themes/multienv-selector/icons/brand-logo.svg',dry.stdout)
+   self.assertIn('/usr/share/plymouth/themes/multienv-monolith/multienv-monolith.plymouth',dry.stdout)
+   self.assertIn('/etc/sddm.conf.d/10-multienv-theme.conf',dry.stdout)
+   out_ply=root/'plymouth_out'
+   subprocess.run(['python3',str(ROOT/'plymouth/multienv-monolith/render_assets.py'),'--out-dir',str(out_ply),'--brand','STUDIO'],check=True)
+   for name in ('logo.png','card.png','entry.png','lock.png','bullet.png','progress_box.png','progress_bar.png','pulse_pill.png','multienv-monolith.script'):
+    self.assertTrue((out_ply/name).is_file(),f'missing {name}')
+   self.assertIn('S T U D I O', (out_ply/'multienv-monolith.script').read_text())
+
 if __name__=="__main__": unittest.main(verbosity=2)

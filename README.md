@@ -93,8 +93,18 @@ Clone the repository and run the installer:
 ```bash
 git clone https://github.com/aarushdalal/arch-multienv.git
 cd arch-multienv
-./bin/multienv-install
+./bin/multienv-install --user --theme
 ```
+
+Optional: customize the greeter brand, supply an SVG logo, activate the SDDM drop-in, or install the matching theme-adaptive Plymouth boot/LUKS/shutdown theme (`multienv-monolith`):
+```bash
+./bin/multienv-install --user --theme --activate-theme \
+  --brand "MY OS" --brand-tagline "WORKSTATION MONOLITH" \
+  --brand-logo /path/to/logo.svg --brand-logo-colorize \
+  --plymouth --activate-plymouth
+```
+
+All branding and Plymouth options are **100% opt-in**; default installs remain generic (`MULTIENV`) and never overwrite your existing Plymouth setup unless requested. See [docs/INSTALLATION.md](docs/INSTALLATION.md) for full details.
 
 ### 3. Generate Session Entries
 Register the configured environments with your display manager:
@@ -130,12 +140,15 @@ arch-multienv/
 │   ├── multienv                  # Master management & switching CLI
 │   ├── multienv-session          # Session wrapper preserving launch status
 │   ├── multienv-logout           # Graceful teardown & seat-release engine
-│   └── multienv-install          # System installer & uninstaller
+│   ├── multienv-install          # System/user installer & uninstaller
+│   └── multienv-plymouth-sync    # Optional palette/wallpaper -> Plymouth sync helper
 ├── config/
 │   ├── multienv.toml.example     # Master declarative configuration template
 │   └── multienv.env.example      # Shell environment template
 ├── sddm/
-│   └── themes/multienv-selector/ # Generic SDDM login screen with full session chooser
+│   └── themes/multienv-selector/ # Generic SDDM login screen (opt-in BrandLogo & MultiEffect icons)
+├── plymouth/
+│   └── multienv-monolith/        # Optional theme-adaptive frosted Plymouth boot/LUKS/shutdown theme
 ├── examples/
 │   ├── environment-a/            # Complete example: Primary / Production Desktop
 │   └── environment-b/            # Complete example: Minimal / Development Desktop

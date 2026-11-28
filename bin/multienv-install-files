@@ -10,100 +10,268 @@ import subprocess
 import tempfile
 import time
 
-def digest(path):
+
+def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def digest_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def render_theme_conf(base_text: str, args) -> bytes:
+    updates = {}
+    if args.brand:
+        updates["Brand"] = args.brand
+    if args.brand_tagline:
+        updates["BrandTagline"] = args.brand_tagline
+    if args.brand_logo:
+        ext = Path(args.brand_logo).suffix or ".svg"
+        updates["BrandLogo"] = f"icons/brand-logo{ext}"
+    elif args.brand_logo_path:
+        updates["BrandLogo"] = args.brand_logo_path
+    if args.brand_logo_colorize:
+        updates["BrandLogoColorize"] = "true"
+    if args.motion_preset:
+        updates["MotionPreset"] = args.motion_preset
+    if args.motion_intensity:
+        updates["MotionIntensity"] = args.motion_intensity
+    if args.reduced_motion:
+        updates["ReducedMotion"] = "true"
+    if args.session_aliases is not None:
+        updates["SessionAliases"] = args.session_aliases
+
+    lines = base_text.splitlines()
+    seen = set()
+    out = []
+    for line in lines:
+        if "=" in line and not line.lstrip().startswith(("#", ";", "[")):
+            key = line.split("=", 1)[0].strip()
+            if key in updates:
+                out.append(f"{key}={updates[key]}")
+                seen.add(key)
+                continue
+        out.append(line)
+    for key, value in updates.items():
+        if key not in seen:
+            out.append(f"{key}={value}")
+    return ("\n".join(out) + "\n").encode("utf-8")
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--prefix', default=os.environ.get('PREFIX', '/usr/local'))
-    parser.add_argument('--user', action='store_true')
-    parser.add_argument('--theme', action='store_true')
-    parser.add_argument('--theme-only', action='store_true')
-    parser.add_argument('--uninstall', action='store_true')
-    parser.add_argument('--dry-run', action='store_true')
-    parser.add_argument('--fingerprint', action='store_true')
+    parser.add_argument("--prefix", default=os.environ.get("PREFIX", "/usr/local"))
+    parser.add_argument("--user", action="store_true")
+    parser.add_argument("--theme", action="store_true", help="Install SDDM multienv-selector theme")
+    parser.add_argument("--theme-only", action="store_true", help="Install only SDDM/Plymouth privileged assets")
+    parser.add_argument("--plymouth", action="store_true", help="Install optional multienv-monolith Plymouth theme and sync helper")
+    parser.add_argument("--plymouth-only", action="store_true", help="Install only the optional Plymouth theme")
+    parser.add_argument("--activate-theme", action="store_true", help="Write /etc/sddm.conf.d/10-multienv-theme.conf to enable multienv-selector")
+    parser.add_argument("--activate-plymouth", action="store_true", help="Set multienv-monolith as active Plymouth theme via plymouth-set-default-theme")
+    parser.add_argument("--brand", default="", help="Custom top-left brand label for SDDM/Plymouth (default: MULTIENV)")
+    parser.add_argument("--brand-tagline", default="", help="Custom tagline next to brand label")
+    parser.add_argument("--brand-logo", default="", help="Path to local SVG/image logo to bundle into theme icons/")
+    parser.add_argument("--brand-logo-path", default="", help="External logo path (e.g. /var/cache/multienv/brand-logo.svg)")
+    parser.add_argument("--brand-logo-colorize", action="store_true", help="Colorize monochrome BrandLogo SVG with active theme accent")
+    parser.add_argument("--motion-preset", default="", help="Default SDDM GreeterMotion preset name")
+    parser.add_argument("--motion-intensity", choices=["subtle", "balanced", "expressive"], default="")
+    parser.add_argument("--reduced-motion", action="store_true", help="Disable non-essential greeter motion")
+    parser.add_argument("--session-aliases", default=None, help="Semicolon-separated SessionAliases mapping")
+    parser.add_argument("--uninstall", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--fingerprint", action="store_true")
     args = parser.parse_args()
+
     if args.fingerprint:
-        parser.error('Fingerprint setup is host-specific; configure fprintd separately. PAM and device rules are preserved.')
+        parser.error("Fingerprint setup is host-specific; configure fprintd separately. PAM and device rules are preserved.")
+    if args.brand_logo and args.brand_logo_path:
+        parser.error("Use either --brand-logo (bundled file) or --brand-logo-path (external path), not both.")
+    if args.brand_logo and not Path(args.brand_logo).is_file():
+        parser.error(f"Brand logo file not found: {args.brand_logo}")
+
     root = Path(__file__).resolve().parent.parent
-    prefix = Path.home()/'.local' if args.user else Path(args.prefix).expanduser()
-    if not prefix.is_absolute(): parser.error('prefix must be absolute')
-    theme = args.theme or args.theme_only
-    if theme and os.geteuid() != 0 and not args.dry_run:
-        # Run the privileged theme operation separately from user configuration.
-        command = ['sudo', str(root/'bin/multienv-install'), '--theme-only']
-        if args.uninstall: command.append('--uninstall')
+    prefix = Path.home() / ".local" if args.user else Path(args.prefix).expanduser()
+    if not prefix.is_absolute():
+        parser.error("prefix must be absolute")
+
+    theme = args.theme or args.theme_only or args.activate_theme
+    plymouth = args.plymouth or args.plymouth_only or args.activate_plymouth
+    privileged_only = args.theme_only or args.plymouth_only
+
+    if (theme or plymouth) and os.geteuid() != 0 and not args.dry_run:
+        command = ["sudo", str(root / "bin/multienv-install")]
+        if theme:
+            command.append("--theme-only")
+        if plymouth:
+            command.append("--plymouth-only")
+        if args.activate_theme:
+            command.append("--activate-theme")
+        if args.activate_plymouth:
+            command.append("--activate-plymouth")
+        if args.brand:
+            command += ["--brand", args.brand]
+        if args.brand_tagline:
+            command += ["--brand-tagline", args.brand_tagline]
+        if args.brand_logo:
+            command += ["--brand-logo", str(Path(args.brand_logo).resolve())]
+        if args.brand_logo_path:
+            command += ["--brand-logo-path", args.brand_logo_path]
+        if args.brand_logo_colorize:
+            command.append("--brand-logo-colorize")
+        if args.motion_preset:
+            command += ["--motion-preset", args.motion_preset]
+        if args.motion_intensity:
+            command += ["--motion-intensity", args.motion_intensity]
+        if args.reduced_motion:
+            command.append("--reduced-motion")
+        if args.session_aliases is not None:
+            command += ["--session-aliases", args.session_aliases]
+        if args.uninstall:
+            command.append("--uninstall")
         subprocess.run(command, check=True)
-        if args.theme_only: return
+        if privileged_only:
+            return
         theme = False
-    state = Path('/var/lib/arch-multienv/theme') if args.theme_only else prefix/'share/arch-multienv/install'
-    journal_file = state/'journal.json'
+        plymouth = False
+
+    state = Path("/var/lib/arch-multienv/theme") if privileged_only else prefix / "share/arch-multienv/install"
+    journal_file = state / "journal.json"
+
     if args.uninstall:
         if not journal_file.is_file():
-            print('No installation ownership journal; nothing removed.'); return
+            print("No installation ownership journal; nothing removed.")
+            return
         journal = json.loads(journal_file.read_text())
         for entry in reversed(journal):
-            target = Path(entry['target'])
-            if target.is_symlink() or (target.exists() and (not target.is_file() or digest(target) != entry['installed_hash'])):
-                print('Preserved locally modified file:', target); continue
-            print('Would restore/remove:' if args.dry_run else 'Restore/remove:', target)
-            if args.dry_run: continue
-            previous = entry.get('previous')
+            target = Path(entry["target"])
+            if target.is_symlink() or (target.exists() and (not target.is_file() or digest(target) != entry["installed_hash"])):
+                print("Preserved locally modified file:", target)
+                continue
+            print("Would restore/remove:" if args.dry_run else "Restore/remove:", target)
+            if args.dry_run:
+                continue
+            previous = entry.get("previous")
             if previous:
                 shutil.copy2(previous, target)
-            else: target.unlink(missing_ok=True)
-        print('Session entries, autologin settings, and user configuration are preserved.'); return
-    operations = []
-    if not args.theme_only:
-        operations += [(root/'bin'/name, prefix/'bin'/name, 0o755) for name in ('multienv', 'multienv-session', 'multienv-logout')]
-        config = Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home()/'.config')))/'multienv'
-        if not (config/'multienv.toml').exists():
-            operations.append((root/'config/multienv.toml.example', config/'multienv.toml', 0o644))
-        for source in (root/'examples').rglob('*'):
-            if source.is_file():
-                destination = config/'environments'/source.relative_to(root/'examples')
-                if not destination.exists(): operations.append((source, destination, source.stat().st_mode & 0o777))
-    if theme:
-        for source in (root/'sddm/themes/multienv-selector').rglob('*'):
-            if source.is_file(): operations.append((source, Path('/usr/share/sddm/themes/multienv-selector')/source.relative_to(root/'sddm/themes/multienv-selector'), 0o644))
-    if args.dry_run:
-        for _, target, _ in operations: print('Would install:', target)
+            else:
+                target.unlink(missing_ok=True)
+        print("Session entries, autologin settings, and user configuration are preserved.")
         return
+
+    # Each operation is (payload_bytes, target_path, mode)
+    operations = []
+
+    if not privileged_only:
+        cli_bins = ["multienv", "multienv-session", "multienv-logout"]
+        if plymouth:
+            cli_bins.append("multienv-plymouth-sync")
+        for name in cli_bins:
+            src = root / "bin" / name
+            operations.append((src.read_bytes(), prefix / "bin" / name, 0o755))
+        config = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "multienv"
+        if not (config / "multienv.toml").exists():
+            operations.append(((root / "config/multienv.toml.example").read_bytes(), config / "multienv.toml", 0o644))
+        for source in (root / "examples").rglob("*"):
+            if source.is_file():
+                destination = config / "environments" / source.relative_to(root / "examples")
+                if not destination.exists():
+                    operations.append((source.read_bytes(), destination, source.stat().st_mode & 0o777))
+
+    if theme:
+        sddm_src = root / "sddm/themes/multienv-selector"
+        sddm_dest = Path("/usr/share/sddm/themes/multienv-selector")
+        for source in sorted(sddm_src.rglob("*")):
+            if not source.is_file():
+                continue
+            rel = source.relative_to(sddm_src)
+            if rel.name == "theme.conf":
+                payload = render_theme_conf(source.read_text(encoding="utf-8"), args)
+            else:
+                payload = source.read_bytes()
+            operations.append((payload, sddm_dest / rel, 0o644))
+        if args.brand_logo:
+            logo_src = Path(args.brand_logo)
+            ext = logo_src.suffix or ".svg"
+            operations.append((logo_src.read_bytes(), sddm_dest / "icons" / f"brand-logo{ext}", 0o644))
+        if args.activate_theme:
+            dropin = b"[Theme]\nCurrent=multienv-selector\n"
+            operations.append((dropin, Path("/etc/sddm.conf.d/10-multienv-theme.conf"), 0o644))
+
+    if plymouth:
+        ply_src = root / "plymouth/multienv-monolith"
+        ply_dest = Path("/usr/share/plymouth/themes/multienv-monolith")
+        for source in sorted(ply_src.rglob("*")):
+            if source.is_file():
+                mode = 0o755 if source.suffix == ".py" else 0o644
+                operations.append((source.read_bytes(), ply_dest / source.relative_to(ply_src), mode))
+        if args.brand_logo:
+            logo_src = Path(args.brand_logo)
+            if logo_src.suffix.lower() == ".svg":
+                operations.append((logo_src.read_bytes(), ply_dest / "multienv-logo.svg.tpl", 0o644))
+        sync_bin = root / "bin/multienv-plymouth-sync"
+        if sync_bin.is_file() and privileged_only:
+            operations.append((sync_bin.read_bytes(), Path("/usr/local/bin/multienv-plymouth-sync"), 0o755))
+
+    if args.dry_run:
+        for _, target, _ in operations:
+            print("Would install:", target)
+        if args.activate_plymouth:
+            print("Would run: plymouth-set-default-theme -R multienv-monolith")
+        return
+
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     previous_journal = json.loads(journal_file.read_text()) if journal_file.exists() else []
-    by_target = {entry['target']: entry for entry in previous_journal}
-    recovery = state/'recovery'/str(time.time_ns())
+    by_target = {entry["target"]: entry for entry in previous_journal}
+    recovery = state / "recovery" / str(time.time_ns())
     recovery.mkdir(parents=True, mode=0o700)
     applied = []
     try:
-        for number, (source, target, mode) in enumerate(operations):
+        for number, (payload, target, mode) in enumerate(operations):
             if target.is_symlink() or any(parent.is_symlink() for parent in target.parents):
-                raise ValueError('Refusing a symlink installation target')
+                raise ValueError("Refusing a symlink installation target")
             target.parent.mkdir(parents=True, exist_ok=True)
-            old = recovery/str(number) if target.exists() else None
-            if old: shutil.copy2(target, old)
-            entry = dict(target=str(target), previous=str(old) if old else None, installed_hash=digest(source))
-            descriptor, temporary = tempfile.mkstemp(prefix='.multienv-', dir=target.parent)
+            old = recovery / str(number) if target.exists() else None
+            if old:
+                shutil.copy2(target, old)
+            entry = dict(target=str(target), previous=str(old) if old else None, installed_hash=digest_bytes(payload))
+            descriptor, temporary = tempfile.mkstemp(prefix=".multienv-", dir=target.parent)
             try:
-                with os.fdopen(descriptor, 'wb') as stream:
-                    stream.write(source.read_bytes()); stream.flush(); os.fsync(stream.fileno())
-                os.chmod(temporary, mode); os.replace(temporary, target)
-            finally: Path(temporary).unlink(missing_ok=True)
+                with os.fdopen(descriptor, "wb") as stream:
+                    stream.write(payload)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.chmod(temporary, mode)
+                os.replace(temporary, target)
+            finally:
+                Path(temporary).unlink(missing_ok=True)
             applied.append(entry)
-            # Keep the pre-installation image across upgrades.
-            entry['previous'] = by_target.get(str(target), entry).get('previous')
+            entry["previous"] = by_target.get(str(target), entry).get("previous")
             by_target[str(target)] = entry
         journal_file.write_text(json.dumps(list(by_target.values()), indent=2))
     except Exception:
         for entry in reversed(applied):
-            target = Path(entry['target'])
-            # Per-run preimages, including upgrades, are numbered in recovery.
-            old = recovery/str(applied.index(entry))
-            if old.exists(): shutil.copy2(old, target)
-            else: target.unlink(missing_ok=True)
+            target = Path(entry["target"])
+            old = recovery / str(applied.index(entry))
+            if old.exists():
+                shutil.copy2(old, target)
+            else:
+                target.unlink(missing_ok=True)
         raise
-    print('Installed with recovery copies:', recovery)
-    if theme: print('Theme installed. Activate it with a separate SDDM Theme drop-in after reviewing your host configuration.')
 
-if __name__ == '__main__':
+    if plymouth and not args.dry_run:
+        sync_cmd = Path("/usr/local/bin/multienv-plymouth-sync")
+        if sync_cmd.is_file():
+            cmd = [str(sync_cmd), "--no-initramfs"]
+            if args.brand:
+                cmd += ["--brand", args.brand]
+            subprocess.run(cmd, check=False)
+        if args.activate_plymouth and shutil.which("plymouth-set-default-theme"):
+            subprocess.run(["plymouth-set-default-theme", "-R", "multienv-monolith"], check=True)
+
+    print("Installed with recovery copies:", recovery)
+    if theme and not args.activate_theme:
+        print("Theme installed. Pass --activate-theme or add an SDDM drop-in with Current=multienv-selector.")
+
+
+if __name__ == "__main__":
     main()

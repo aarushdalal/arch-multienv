@@ -147,3 +147,27 @@ in `/usr/local/share/wayland-sessions` appearing as another desktop.
 If an environment is intentionally added later, update this explicit registry
 along with its MultiEnv configuration. Removing the SDDM override restores
 default session discovery; it can also restore duplicate launcher choices.
+
+---
+
+## 3. SDDM Theme Customization (`theme.conf`)
+
+`/usr/share/sddm/themes/multienv-selector/theme.conf` supports opt-in branding, motion, and session-alias controls under `[General]`:
+
+```ini
+[General]
+Fingerprint=true
+ReducedMotion=false
+MotionPreset=cosmic
+MotionIntensity=balanced
+SessionAliases=Hyprland=Desktop
+Brand=MULTIENV
+BrandTagline=WORKSTATION MONOLITH
+BrandLogo=
+BrandLogoColorize=false
+```
+
+- **`Brand` / `BrandTagline`**: Controls the floating top-left header lockup rendered above the blurred wallpaper.
+- **`BrandLogo`**: Path relative to the theme directory (e.g. `icons/brand-logo.svg`) or an absolute path (e.g. `/var/cache/multienv/brand-logo.svg`). Leave empty for the minimal accent dot indicator.
+- **`BrandLogoColorize`**: Set `true` to tint monochrome SVGs dynamically with `ThemeColors.palette.accent`. Keep `false` when providing a pre-tinted dual-tone SVG.
+- **Dynamic Icon & Light-Theme Adaptation**: All bundled UI SVG icons (`user.svg`, `lock.svg`, `arrow-right.svg`, `fingerprint.svg`, `restart.svg`, `power.svg`) are tinted via Qt 6 `MultiEffect`, and `SecurePanel.qml` automatically enforces luminance contrast for `secondary`/`muted` labels and adapts scrim/input translucency when `ThemeColors.palette.mode === "light"`.

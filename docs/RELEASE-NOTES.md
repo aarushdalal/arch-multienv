@@ -1,19 +1,16 @@
-# arch-multienv 1.4.4
+# arch-multienv 1.5.0
 
-### Dynamic Wallpaper Palette Integration, Silky Bokeh Blur & Zero-White Frosted Monolith
+### Opt-In SDDM Brand Logo, Dynamic `MultiEffect` Icon Tinting, Optional Frosted Plymouth Theme & Enhanced Installer
 
-This release introduces native dynamic palette synchronization directly from your active desktop theme's `colors.toml`, upgrades the background wallpaper with rich creamy bokeh blur, and completely eliminates specular white halo bleeding for a truly bespoke, professional look.
+Release `1.5.0` makes every SDDM greeter icon and contrast token fully theme-adaptive, introduces an opt-in brand logo slot above the blurred backdrop, adds an optional theme-adaptive Plymouth boot/LUKS/loading/shutdown package (`multienv-monolith`), and upgrades `multienv-install` with rich customization flags so everything configures cleanly in one command.
 
-### Key Changes
-- **Dynamic `colors.toml` Palette Synchronization**:
-  - Automatically parses the active theme's `colors.toml` (`~/.local/state/omarchy/current/theme/colors.toml`) into a synchronous `ThemeColors.js` QML library.
-  - Dynamically drives greeter accents, typography, translucent card acrylic gradients, button active states, and focus rings directly from the wallpaper palette.
-  - Automatically updates on every wallpaper change via the zero-prompt `25-sddm-wallpaper-sync.sh` hook.
-- **Rich Creamy Bokeh Wallpaper Blur**:
-  - Pre-computed 20px Gaussian bokeh cache (`background_blurred.png`) combined with QML GPU atmospheric blur for an unmistakable frosted depth behind the monolith card.
-  - Fail-safe fallback engine ensuring buttery smooth frosted depth across all resolutions and hardware.
-- **Complete Elimination of White Glow & Specular Bleeding**:
-  - Removed `#ffffff` layer masks and specular line highlights.
-  - Replaced all card and button borders with subtle theme-tinted translucency.
-- **Clean-Room Verified**:
-  - 100% test pass across all syntax, session choice, keyboard interaction, and clean-room privacy checks.
+### Highlights
+- **Opt-In SDDM Branding (`theme.conf` & Installer Flags)**:
+  - Configure `Brand`, `BrandTagline`, `BrandLogo`, and `BrandLogoColorize` via `theme.conf` or directly with `./bin/multienv-install --user --theme --brand ... --brand-logo ...`.
+  - Generic `MULTIENV` remains the default when no brand flags are passed—zero forced branding.
+- **Complete SDDM Theme Adaptation & Contrast Guards**:
+  - All bundled UI SVG icons are now dynamically tinted with Qt 6 `MultiEffect`, remaining hardcoded sky-blue halos and modal colors are wired to `ThemeColors.palette`, and luminance guards keep `secondary`/`muted` labels crisp on both dark and light themes.
+- **Optional `multienv-monolith` Plymouth Package & `multienv-plymouth-sync`**:
+  - Install with `--plymouth` (and optionally `--activate-plymouth`) to get a matching theme-adapted frosted-glass LUKS unlock screen (logo floating above the card), branded post-unlock loading screen, and animated 50 FPS shutdown/reboot screen.
+- **Verified**:
+  - Full `tests/run_all_tests.sh`, `tests/test_refinement.py`, `tools/release_privacy_check.py`, `GreeterTests.qml`, and `qmltestrunner` QML suites pass cleanly.

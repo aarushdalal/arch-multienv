@@ -72,7 +72,11 @@ Item {
         id: panel; anchors.fill: parent
         backgroundPath: "/var/cache/multienv/background_blurred.png"
         userName: root.currentUser; editUser: !root.currentUser || root.currentUser.length === 0
-        brand: "MULTIENV"; actionText: "Sign in"
+        brand: (typeof config !== "undefined" && config.Brand && config.Brand.length > 0) ? config.Brand : "MULTIENV"
+        brandTagline: (typeof config !== "undefined" && config.BrandTagline && config.BrandTagline.length > 0) ? config.BrandTagline : "WORKSTATION MONOLITH"
+        brandLogo: (typeof config !== "undefined" && config.BrandLogo) ? config.BrandLogo : ""
+        brandLogoColorize: typeof config !== "undefined" && config.BrandLogoColorize === "true"
+        actionText: "Sign in"
         busy: root.pending; fingerprintBusy: root.biometricPending
         failed: root.loginFailed; message: root.message
         fingerprintAvailable: root.fingerprintEnabled

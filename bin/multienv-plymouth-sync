@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# multienv-plymouth-sync: Optional wallpaper, palette & Plymouth sync helper
+# Synchronizes active theme palette (colors.toml) + wallpaper to SDDM
+# (multienv-selector) and Plymouth (multienv-monolith).
+# ==============================================================================
+set -euo pipefail
+
+DEST_DIR="${MULTIENV_CACHE_DIR:-/var/cache/multienv}"
+DEST_BG="$DEST_DIR/background.png"
+DEST_BLURRED="$DEST_DIR/background_blurred.png"
+DEST_COLORS_JS="$DEST_DIR/ThemeColors.js"
+DEST_COLORS_JSON="$DEST_DIR/colors.json"
+DEST_LOGO_SVG="$DEST_DIR/brand-logo.svg"
+
+SDDM_DIR="/usr/share/sddm/themes/multienv-selector"
+PLYMOUTH_DIR="/usr/share/plymouth/themes/multienv-monolith"
+RENDERER="$PLYMOUTH_DIR/render_assets.py"
+LOGO_TPL="$PLYMOUTH_DIR/multienv-logo.svg.tpl"
+SCRIPT_TPL="$PLYMOUTH_DIR/multienv.script.tpl"
+
+BG_SRC=""
+COLORS_TOML=""
+BRAND_NAME="MULTIENV"
+CRYPT_LABEL="LUKS2 Encrypted Root"
+NO_INITRAMFS=0
+
+usage() {
+  cat <<'EOF'
+Usage: multienv-plymouth-sync [options]
+  --bg PATH           Wallpaper image to blur and install
+  --colors-toml PATH  colors.toml palette file to parse
+  --brand NAME        Wordmark shown on boot/loading/shutdown (default: MULTIENV)
+  --crypt-label TEXT  Device label shown on LUKS card
+  --no-initramfs      Update theme assets without rebuilding initramfs
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --bg) BG_SRC="$2"; shift 2 ;;
+    --colors-toml) COLORS_TOML="$2"; shift 2 ;;
+    --brand) BRAND_NAME="$2"; shift 2 ;;
+    --crypt-label) CRYPT_LABEL="$2"; shift 2 ;;
+    --no-initramfs) NO_INITRAMFS=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
+  esac
+done
+
+# Auto-detect Omarchy / XDG current theme state when flags are omitted
+STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+if [[ -z "$BG_SRC" && -f "$STATE_HOME/omarchy/current/background" ]]; then
+  BG_SRC="$STATE_HOME/omarchy/current/background"
+fi
+if [[ -z "$COLORS_TOML" && -f "$STATE_HOME/omarchy/current/theme/colors.toml" ]]; then
+  COLORS_TOML="$STATE_HOME/omarchy/current/theme/colors.toml"
+fi
+
+mkdir -p "$DEST_DIR"
+
+if [[ -n "$BG_SRC" && -f "$BG_SRC" ]]; then
+  cp -L "$BG_SRC" "$DEST_BG"
+  chmod 644 "$DEST_BG"
+  if command -v magick >/dev/null 2>&1; then
+    magick "$DEST_BG" -resize 1920x1080^ -gravity center -extent 1920x1080 -blur 0x20 "$DEST_BLURRED"
+    chmod 644 "$DEST_BLURRED"
+  fi
+fi
+
+if [[ -n "$COLORS_TOML" && -f "$COLORS_TOML" ]]; then
+  python3 - "$COLORS_TOML" "$DEST_COLORS_JS" "$DEST_COLORS_JSON" "$SDDM_DIR/ThemeColors.js" "$LOGO_TPL" "$DEST_LOGO_SVG" <<'PY'
+import json, os, sys, tomllib
+
+toml_path, js_out, json_out, sddm_js, logo_tpl, logo_out = sys.argv[1:7]
+with open(toml_path, "rb") as f:
+    c = tomllib.load(f)
+
+palette = {
+    "mode": c.get("mode", "dark"),
+    "accent": c.get("accent", "#38bdf8"),
+    "accentHover": c.get("bright_blue", c.get("bright_cyan", "#60a5fa")),
+    "foreground": c.get("foreground", c.get("fg", "#f1f5f9")),
+    "secondary": c.get("dark_fg", "#94a3b8"),
+    "muted": c.get("muted", "#64748b"),
+    "background": c.get("background", c.get("bg", "#08090d")),
+    "lighterBg": c.get("lighter_bg", "#141824"),
+    "cyan": c.get("cyan", "#38bdf8"),
+    "blue": c.get("blue", "#60a5fa"),
+    "red": c.get("red", "#f87171"),
+    "green": c.get("green", "#4ade80"),
+    "yellow": c.get("yellow", "#facc15"),
+}
+
+js_content = "// Generated from colors.toml\n.pragma library\n\nvar palette = " + json.dumps(palette, indent=4) + ";\n"
+for target in (js_out, sddm_js):
+    if os.path.isdir(os.path.dirname(target)):
+        try:
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(js_content)
+            os.chmod(target, 0o644)
+        except OSError:
+            pass
+
+with open(json_out, "w", encoding="utf-8") as f:
+    json.dump(palette, f, indent=2)
+os.chmod(json_out, 0o644)
+
+if os.path.isfile(logo_tpl):
+    with open(logo_tpl, "r", encoding="utf-8") as f:
+        svg = f.read().format(FG=palette["foreground"], ACCENT=palette["accent"])
+    with open(logo_out, "w", encoding="utf-8") as f:
+        f.write(svg)
+    os.chmod(logo_out, 0o644)
+PY
+fi
+
+if [[ -d "$PLYMOUTH_DIR" ]]; then
+  if [[ -f "$DEST_BG" ]] && command -v magick >/dev/null 2>&1; then
+    magick "$DEST_BG" -resize 1920x1080^ -gravity center -extent 1920x1080 -blur 0x18 "$PLYMOUTH_DIR/background.png"
+    chmod 644 "$PLYMOUTH_DIR/background.png"
+  fi
+  if [[ -f "$RENDERER" && -f "$SCRIPT_TPL" ]]; then
+    python3 "$RENDERER" \
+      --colors "$DEST_COLORS_JSON" \
+      --logo-tpl "$LOGO_TPL" \
+      --script-tpl "$SCRIPT_TPL" \
+      --out-dir "$PLYMOUTH_DIR" \
+      --bg-image "$PLYMOUTH_DIR/background.png" \
+      --brand "$BRAND_NAME" \
+      --crypt-label "$CRYPT_LABEL"
+    chmod 644 "$PLYMOUTH_DIR"/*.png "$PLYMOUTH_DIR/multienv-monolith.script" 2>/dev/null || true
+  fi
+fi
+
+if (( ! NO_INITRAMFS )); then
+  if command -v limine-mkinitcpio >/dev/null 2>&1; then
+    nice -n 19 ionice -c 3 limine-mkinitcpio
+  elif command -v mkinitcpio >/dev/null 2>&1; then
+    nice -n 19 ionice -c 3 mkinitcpio -P
+  fi
+fi

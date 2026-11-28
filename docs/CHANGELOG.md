@@ -2,6 +2,18 @@
 
 All notable changes to `arch-multienv` will be documented in this file.
 
+## [1.5.0] - 2026-11-28
+
+- **Opt-In Brand Logo Slot & `MultiEffect` Icon Tinting in SDDM (`multienv-selector`)**:
+  - Added configurable `Brand`, `BrandTagline`, `BrandLogo`, and `BrandLogoColorize` options in `Main.qml`, `SecurePanel.qml`, and `theme.conf` while keeping the upstream default generic (`MULTIENV`, no forced logo).
+  - Eliminated remaining hardcoded sky-blue halos (`#38bdf8`), `#121622` modal fills, and static SVG stroke colors by normalizing bundled icons to `#ffffff` and applying Qt 6 `MultiEffect` theme colorization.
+  - Added luminance contrast guards for `secondary`/`muted` labels and light-theme (`mode = "light"`) scrim/card adaptation.
+- **Optional Theme-Adaptive Plymouth Package (`multienv-monolith`)**:
+  - Added `plymouth/multienv-monolith/` (`render_assets.py`, `multienv.script.tpl`, `multienv-logo.svg.tpl`, `multienv-monolith.plymouth`) and `bin/multienv-plymouth-sync`.
+  - Dynamically renders a translucent frosted-glass LUKS unlock card (with wallpaper refraction, top inner glass sheen, and `accent` rim), floating logo above the card, post-unlock loading progress screen, and shutdown/reboot screens with a 50 FPS gliding indeterminate pulse pill.
+- **Expanded Installer CLI (`bin/multienv-install` / `bin/multienv-install-files`)**:
+  - Added `--brand`, `--brand-tagline`, `--brand-logo`, `--brand-logo-path`, `--brand-logo-colorize`, `--motion-preset`, `--motion-intensity`, `--reduced-motion`, `--session-aliases`, `--activate-theme`, `--plymouth`, `--plymouth-only`, and `--activate-plymouth` with full preimage/journal rollback support.
+
 ## [1.4.4] - 2026-11-22
 
 - **Dynamic `colors.toml` Wallpaper Palette Synchronization**:
